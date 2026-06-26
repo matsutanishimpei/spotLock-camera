@@ -1,34 +1,35 @@
 package com.example.spotlockcamera
 
 import java.io.ByteArrayOutputStream
-import java.security.MessageDigest
+import java.security.KeyFactory
+import java.security.PrivateKey
+import java.security.Signature
+import java.security.spec.PKCS8EncodedKeySpec
+import android.util.Base64
 
 object JpegSignatureEditor {
 
-    // Simple obfuscated secret key: "SpotLockSecretKey" represented as bytes
-    private val OBFUSCATED_SECRET_KEY = byteArrayOf(
-        0x53, 0x70, 0x6f, 0x74, 0x4c, 0x6f, 0x63, 0x6b, // SpotLock
-        0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x4b, 0x65, 0x79  // SecretKey
-    )
-
-    fun getSecretKey(): String {
-        return String(OBFUSCATED_SECRET_KEY, Charsets.UTF_8)
+    private fun getPrivateKey(): PrivateKey {
+        val keyBytes = Base64.decode(BuildConfig.SPOTLOCK_PRIVATE_KEY, Base64.DEFAULT)
+        val spec = PKCS8EncodedKeySpec(keyBytes)
+        val kf = KeyFactory.getInstance("EC")
+        return kf.generatePrivate(spec)
     }
 
     /**
      * Signs the original JPEG bytes and inserts the custom APP15 segment.
      */
     fun signAndEmbed(originalBytes: ByteArray, timestamp: Long): ByteArray {
-        // Calculate signature: SHA-256(SecretKey + TimestampString + OriginalBytes)
         val timestampStr = timestamp.toString()
-        val md = MessageDigest.getInstance("SHA-256")
-        md.update(OBFUSCATED_SECRET_KEY)
-        md.update(timestampStr.toByteArray(Charsets.UTF_8))
-        md.update(originalBytes)
-        val signature = md.digest()
+        val signer = Signature.getInstance("SHA256withECDSA")
+        signer.initSign(getPrivateKey())
+        signer.update(timestampStr.toByteArray(Charsets.UTF_8))
+        signer.update(originalBytes)
+        val derSignature = signer.sign()
+        val signature = derToRaw(derSignature)
 
         // Create APP15 payload
-        // Format: [8 bytes "SPOTLOCK"] + [1 byte version] + [8 bytes timestamp] + [32 bytes signature]
+        // Format: [8 bytes "SPOTLOCK"] + [1 byte version] + [8 bytes timestamp] + [64 bytes signature]
         val payloadStream = ByteArrayOutputStream()
         
         // 8 bytes Magic
@@ -39,7 +40,7 @@ object JpegSignatureEditor {
         for (i in 7 downTo 0) {
             payloadStream.write(((timestamp shr (i * 8)) and 0xFF).toInt())
         }
-        // 32 bytes Signature
+        // 64 bytes Signature
         payloadStream.write(signature)
 
         val payload = payloadStream.toByteArray()
@@ -62,6 +63,32 @@ object JpegSignatureEditor {
         outputStream.write(originalBytes, insertIndex, originalBytes.size - insertIndex)
 
         return outputStream.toByteArray()
+    }
+
+    private fun derToRaw(der: ByteArray): ByteArray {
+        val raw = ByteArray(64)
+        var offset = 0
+        if (der[offset++] != 0x30.toByte()) throw IllegalArgumentException("Invalid DER signature structure")
+        val totalLen = der[offset++].toInt() and 0xFF
+        
+        if (der[offset++] != 0x02.toByte()) throw IllegalArgumentException("Invalid DER signature R marker")
+        val rLen = der[offset++].toInt() and 0xFF
+        val rBytes = der.sliceArray(offset until offset + rLen)
+        offset += rLen
+        
+        if (der[offset++] != 0x02.toByte()) throw IllegalArgumentException("Invalid DER signature S marker")
+        val sLen = der[offset++].toInt() and 0xFF
+        val sBytes = der.sliceArray(offset until offset + sLen)
+        
+        val rStart = if (rLen > 32) rLen - 32 else 0
+        val rLength = if (rLen > 32) 32 else rLen
+        System.arraycopy(rBytes, rStart, raw, 32 - rLength, rLength)
+        
+        val sStart = if (sLen > 32) sLen - 32 else 0
+        val sLength = if (sLen > 32) 32 else sLen
+        System.arraycopy(sBytes, sStart, raw, 64 - sLength, sLength)
+        
+        return raw
     }
 
     /**

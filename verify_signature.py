@@ -2,8 +2,8 @@ import sys
 import hashlib
 from datetime import datetime
 
-# The same secret key obfuscated in the Kotlin code
-SECRET_KEY = b"SpotLockSecretKey"
+# Public Key SPKI Hex (same as web/index.html)
+PUBLIC_KEY_HEX = "3059301306072a8648ce3d020106082a8648ce3d030107034200045e2dacfdcad91537fc39893555ee32e4ca56516097bede5a00c1833370df6489a948c9adf3d91564d65469ed10302bb5085d155e6d7082cb83f4d3e43a54c24e"
 
 def verify_jpeg(file_path):
     print(f"Reading file: {file_path}")
@@ -49,19 +49,40 @@ def verify_jpeg(file_path):
     timestamp_bytes = data[timestamp_offset:timestamp_offset+8]
     timestamp = int.from_bytes(timestamp_bytes, byteorder='big')
     
+    # ECDSA signature is 64 bytes (R | S)
     embedded_sig_offset = timestamp_offset + 8
-    embedded_sig = data[embedded_sig_offset:embedded_sig_offset+32]
+    embedded_sig = data[embedded_sig_offset:embedded_sig_offset+64]
 
     # Reconstruct original bytes (remove the APP15 segment completely)
     original_bytes = data[:app15_offset] + data[app15_offset + 2 + segment_len:]
 
-    # Recalculate signature
+    # Prepare signature payload
     timestamp_str = str(timestamp).encode('utf-8')
-    hasher = hashlib.sha256()
-    hasher.update(SECRET_KEY)
-    hasher.update(timestamp_str)
-    hasher.update(original_bytes)
-    calculated_sig = hasher.digest()
+    combined = timestamp_str + original_bytes
+
+    # Parse raw 64-byte signature to DER format for cryptography library
+    from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives import serialization
+
+    r = int.from_bytes(embedded_sig[:32], byteorder='big')
+    s = int.from_bytes(embedded_sig[32:], byteorder='big')
+    der_sig = encode_dss_signature(r, s)
+
+    # Load public key
+    try:
+        public_key = serialization.load_der_public_key(bytes.fromhex(PUBLIC_KEY_HEX))
+    except Exception as e:
+        print(f"[-] Error loading public key: {e}")
+        return False
+
+    # Verify signature
+    try:
+        public_key.verify(der_sig, combined, ec.ECDSA(hashes.SHA256()))
+        is_valid = True
+    except Exception:
+        is_valid = False
 
     dt_object = datetime.fromtimestamp(timestamp / 1000.0)
 
@@ -69,11 +90,10 @@ def verify_jpeg(file_path):
     print(f"Metadata Version:    {version}")
     print(f"Timestamp (UNIX):   {timestamp}")
     print(f"Timestamp (Local):  {dt_object.strftime('%Y-%m-%d %H:%M:%S.%f')}")
-    print(f"Embedded Signature:  {embedded_sig.hex()}")
-    print(f"Calculated Signature:{calculated_sig.hex()}")
+    print(f"Embedded Signature:  {embedded_sig.hex()[:32]}...")
     print("-" * 50)
 
-    if embedded_sig == calculated_sig:
+    if is_valid:
         print("[SUCCESS] Signature is VALID. The photo's timestamp and image data are authentic and untampered.")
         return True
     else:

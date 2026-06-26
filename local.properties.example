@@ -1,0 +1,6 @@
+# Location of the SDK. This is only used by Gradle.
+# On Windows, use double backslashes, e.g. C\:\\Users\\Username\\AppData\\Local\\Android\\Sdk
+# sdk.dir=C\:\\Users\\YOUR_USERNAME\\AppData\\Local\\Android\\Sdk
+
+# SpotLock Cryptographic Private Key (Asymmetric EC P-256 Private Key in Base64 PKCS#8 format)
+spotlock.privateKey=YourPrivateKeyBase64Here
