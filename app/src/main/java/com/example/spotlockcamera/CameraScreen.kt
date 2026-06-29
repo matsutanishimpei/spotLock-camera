@@ -2,6 +2,11 @@ package com.example.spotlockcamera
 
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
@@ -38,7 +43,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -168,8 +177,12 @@ private fun captureAndSignImage(
                         image.close()
 
                         val timestamp = System.currentTimeMillis()
-                        // 1. Generate signature and embed APP15 metadata
-                        val signedBytes = JpegSignatureEditor.signAndEmbed(originalBytes, timestamp)
+                        
+                        // Burn the timestamp visually onto the JPEG image
+                        val stampedBytes = drawTimestampOnJpeg(originalBytes, timestamp)
+
+                        // 1. Generate signature and embed APP15 metadata using stamped bytes
+                        val signedBytes = JpegSignatureEditor.signAndEmbed(stampedBytes, timestamp)
 
                         // 2. Save signed JPEG to MediaStore
                         saveToMediaStore(context, signedBytes, timestamp)
@@ -193,6 +206,64 @@ private fun captureAndSignImage(
             }
         }
     )
+}
+
+private fun drawTimestampOnJpeg(originalBytes: ByteArray, timestamp: Long): ByteArray {
+    try {
+        val bitmap = BitmapFactory.decodeByteArray(originalBytes, 0, originalBytes.size) ?: return originalBytes
+        val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        bitmap.recycle()
+
+        val canvas = Canvas(mutableBitmap)
+        
+        // Setup Paint for retro orange timestamp text
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(255, 140, 0) // Classic film stamp orange
+            textSize = mutableBitmap.width / 22f // Scale text size (approx 4.5% of width)
+            style = Paint.Style.FILL
+            isFakeBoldText = true
+            // slight drop shadow for contrast
+            setShadowLayer(3f, 2f, 2f, android.graphics.Color.BLACK)
+        }
+
+        val sdf = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault())
+        val text = sdf.format(Date(timestamp))
+
+        val bounds = Rect()
+        paint.getTextBounds(text, 0, text.length, bounds)
+
+        // Margin from bottom-right corner (approx 4% of dimensions)
+        val marginX = mutableBitmap.width * 0.04f
+        val marginY = mutableBitmap.height * 0.04f
+
+        val x = mutableBitmap.width - bounds.width() - marginX
+        val y = mutableBitmap.height - marginY
+
+        // Draw shadow/background container for maximum readability
+        val bgPaint = Paint().apply {
+            color = android.graphics.Color.BLACK
+            alpha = 90 // semi-transparent black
+        }
+        val padding = paint.textSize * 0.15f
+        canvas.drawRect(
+            x - padding,
+            y - bounds.height() - padding,
+            x + bounds.width() + padding,
+            y + padding,
+            bgPaint
+        )
+
+        canvas.drawText(text, x, y, paint)
+
+        val stream = ByteArrayOutputStream()
+        mutableBitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream)
+        val stampedBytes = stream.toByteArray()
+        mutableBitmap.recycle()
+        return stampedBytes
+    } catch (e: Exception) {
+        Log.e("CameraScreen", "Failed to draw timestamp overlay", e)
+        return originalBytes
+    }
 }
 
 private fun saveToMediaStore(context: Context, bytes: ByteArray, timestamp: Long) {

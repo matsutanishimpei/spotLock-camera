@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SpotLock Verifier (Mobile)</title>
+    <meta name="description" content="Verify SpotLock photos on mobile without image display.">
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0d13;
+            --card-bg: rgba(20, 24, 38, 0.75);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --accent-primary: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.2);
+            --success-color: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.15);
+            --error-color: #ef4444;
+            --error-glow: rgba(239, 68, 68, 0.15);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+            position: relative;
+            padding: 1rem;
+        }
+
+        /* Ambient background glow */
+        body::before {
+            content: '';
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, transparent 70%);
+            top: -50px;
+            left: -50px;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        body::after {
+            content: '';
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(139, 92, 246, 0.06) 0%, transparent 70%);
+            bottom: -50px;
+            right: -50px;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            z-index: 10;
+        }
+
+        header {
+            text-align: center;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            background: linear-gradient(135deg, #ffffff 40%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.25rem;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            font-weight: 400;
+        }
+        /* Glassmorphic main panel */
+        .panel {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 1.25rem;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        /* Tap / Drop Zone */
+        .drop-zone {
+            border: 2px dashed rgba(255, 255, 255, 0.15);
+            border-radius: 14px;
+            padding: 3rem 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: rgba(255, 255, 255, 0.01);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .drop-zone:active {
+            border-color: var(--accent-primary);
+            background: rgba(59, 130, 246, 0.05);
+            box-shadow: 0 0 20px var(--accent-glow);
+            transform: scale(0.98);
+        }
+
+        .drop-zone input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .upload-icon {
+            width: 48px;
+            height: 48px;
+            color: var(--accent-primary);
+        }
+
+        .upload-text {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .upload-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Results Layout (No Image Preview) */
+        .result-container {
+            display: none;
+            animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .result-header {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.75rem;
+            margin-bottom: 1.25rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .status-badge.success {
+            background-color: rgba(16, 185, 129, 0.1);
+            color: var(--success-color);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 12px var(--success-glow);
+        }
+
+        .status-badge.error {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: var(--error-color);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            box-shadow: 0 0 12px var(--error-glow);
+        }
+
+        /* Metadata Details */
+        .details-box {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .detail-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 0.875rem;
+        }
+
+        .detail-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+        }
+
+        .detail-value {
+            font-size: 0.95rem;
+            font-weight: 500;
+            word-break: break-all;
+        }
+
+        .detail-value.time {
+            font-size: 1.15rem;
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .code-box {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 6px;
+            padding: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            color: #d1d5db;
+            overflow-x: auto;
+            margin-top: 0.25rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .button-group {
+            display: flex;
+            margin-top: 0.75rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 0.85rem;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            border: none;
+        }
+
+        .btn-secondary {
+            background-color: rgba(255, 255, 255, 0.06);
+            color: var(--text-main);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-secondary:active {
+            background-color: rgba(255, 255, 255, 0.12);
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: none;
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent-primary);
+            animation: spin 1s ease-in-out infinite;
+            margin: 2.5rem auto;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        footer {
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: auto;
+            padding: 1.5rem 0 1rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>SpotLock Verifier</h1>
+        <p class="subtitle">写真の検証（モバイル版）</p>
+    </header>
+    <main class="panel">
+        <!-- Tap to Select Zone -->
+        <div class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput" accept="image/jpeg,image/jpg">
+            <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            <div>
+                <p class="upload-text">タップして写真を選択</p>
+                <p class="upload-hint">JPEGファイルのみ (検証結果に画像は表示されません)</p>
+            </div>
+        </div>
+
+        <!-- Spinner -->
+        <div class="spinner" id="spinner"></div>
+
+        <!-- Verification Results -->
+        <div class="result-container" id="resultContainer">
+            <div class="result-header">
+                <div id="statusBadge" class="status-badge"></div>
+                <h2 id="statusTitle" style="font-size: 1.15rem; font-weight: 600; line-height: 1.4;"></h2>
+            </div>
+
+            <div class="details-box">
+                <!-- Capture Time -->
+                <div class="detail-item" id="timeDetail">
+                    <div class="detail-label">撮影時間 (デジタル署名証明)</div>
+                    <div id="timeValue" class="detail-value time"></div>
+                    <div id="timeRelative" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;"></div>
+                </div>
+
+                <!-- Extra Info -->
+                <div class="detail-item" id="sigMatchDetail">
+                    <div class="detail-label">暗号署名検証</div>
+                    <div style="font-size: 0.9rem;" id="sigMatchText"></div>
+                    <div style="margin-top: 0.5rem;">
+                        <span class="detail-label" style="font-size: 0.7rem;">埋め込み署名</span>
+                        <div class="code-box" id="embeddedSig"></div>
+                    </div>
+                </div>
+
+                <!-- Version & Technical Metadata -->
+                <div class="detail-item" style="opacity: 0.9;">
+                    <div class="detail-label">セグメント詳細</div>
+                    <div style="font-size: 0.85rem; display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem;">
+                        <span style="color: var(--text-muted)">メタデータバージョン:</span>
+                        <span id="metaVersion">-</span>
+                        <span style="color: var(--text-muted)">タイムスタンプ値:</span>
+                        <span id="rawTimestamp">-</span>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-secondary" id="resetBtn">別の写真を検証</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2026 SpotLock Camera. All rights reserved.</p>
+    </footer>
+</div>
+
+<script>
+    // Configuration: Version mapping to EC P-256 SPKI Public Keys (Hex format)
+    const PUBLIC_KEYS = {
+        1: "3059301306072a8648ce3d020106082a8648ce3d030107034200045e2dacfdcad91537fc39893555ee32e4ca56516097bede5a00c1833370df6489a948c9adf3d91564d65469ed10302bb5085d155e6d7082cb83f4d3e43a54c24e"
+    };
+    
+    // UI Elements
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const spinner = document.getElementById('spinner');
+    const resultContainer = document.getElementById('resultContainer');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusTitle = document.getElementById('statusTitle');
+    const timeDetail = document.getElementById('timeDetail');
+    const timeValue = document.getElementById('timeValue');
+    const timeRelative = document.getElementById('timeRelative');
+    const sigMatchDetail = document.getElementById('sigMatchDetail');
+    const sigMatchText = document.getElementById('sigMatchText');
+    const embeddedSig = document.getElementById('embeddedSig');
+    const metaVersion = document.getElementById('metaVersion');
+    const rawTimestamp = document.getElementById('rawTimestamp');
+    const resetBtn = document.getElementById('resetBtn');
+
+    // Drag and Drop / Select Events
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, e => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, e => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+        }, false);
+    });
+
+    dropZone.addEventListener('drop', e => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files.length > 0) {
+            handleFile(files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', e => {
+        if (fileInput.files.length > 0) {
+            handleFile(fileInput.files[0]);
+        }
+    });
+
+    resetBtn.addEventListener('click', () => {
+        resultContainer.style.display = 'none';
+        dropZone.style.display = 'flex';
+        fileInput.value = '';
+    });
+
+    // Helper: format Uint8Array to Hex string
+    function toHexString(byteArray) {
+        return Array.from(byteArray, byte => {
+            return ('0' + (byte & 0xFF).toString(16)).slice(-2);
+        }).join('');
+    }
+
+    // Helper: convert hex string to array buffer
+    function hexToBytes(hex) {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+        }
+        return bytes.buffer;
+    }
+
+    // Helper: format relative time
+    function getRelativeTimeString(ms) {
+        const diff = Date.now() - ms;
+        const seconds = Math.floor(diff / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+
+        if (days > 0) return `${days}日前`;
+        if (hours > 0) return `${hours}時間前`;
+        if (minutes > 0) return `${minutes}分前`;
+        return 'たった今';
+    }
+
+    // Core Verification logic
+    async function handleFile(file) {
+        // Show loading state
+        dropZone.style.display = 'none';
+        spinner.style.display = 'block';
+        resultContainer.style.display = 'none';
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const data = new Uint8Array(arrayBuffer);
+
+            // Find APP15 marker (0xFFEF) followed by "SPOTLOCK"
+            let app15Offset = -1;
+            let segmentLen = -1;
+
+            for (let i = 0; i <= data.length - 12; i++) {
+                if (data[i] === 0xFF && data[i+1] === 0xEF) {
+                    const length = (data[i+2] << 8) | data[i+3];
+                    const magic = "SPOTLOCK";
+                    let magicMatch = true;
+                    for (let m = 0; m < 8; m++) {
+                        if (data[i+4+m] !== magic.charCodeAt(m)) {
+                            magicMatch = false;
+                            break;
+                        }
+                    }
+                    if (magicMatch && i + 2 + length <= data.length) {
+                        app15Offset = i;
+                        segmentLen = length;
+                        break;
+                    }
+                }
+            }
+
+            if (app15Offset === -1) {
+                throw new Error("画像内にSpotLockのメタデータセグメント（APP15）が見つかりませんでした。この画像はSpotLock Cameraで撮影されていないか、メタデータが削除されています。");
+            }
+
+            // Extract metadata
+            const version = data[app15Offset + 12];
+            
+            // Reconstruct 8-byte big-endian timestamp
+            let timestamp = 0n;
+            for (let j = 0; j < 8; j++) {
+                timestamp = (timestamp << 8n) | BigInt(data[app15Offset + 13 + j]);
+            }
+
+            // ECDSA signatures for P-256 are 64 bytes (R | S)
+            const embeddedSigBytes = data.slice(app15Offset + 21, app15Offset + 85);
+
+            // Reconstruct original bytes (exclude APP15)
+            const originalBytes = new Uint8Array(data.length - (2 + segmentLen));
+            originalBytes.set(data.subarray(0, app15Offset), 0);
+            originalBytes.set(data.subarray(app15Offset + 2 + segmentLen), app15Offset);
+
+            // Get verification public key for this version
+            const pubKeyHex = PUBLIC_KEYS[version];
+            if (!pubKeyHex) {
+                throw new Error(`バージョン v${version} の公開鍵が検証サイトに設定されていません。`);
+            }
+
+            // Prepare signing payload: timestampString (UTF-8) + originalBytes
+            const timestampStrBytes = new TextEncoder().encode(timestamp.toString());
+            const combined = new Uint8Array(timestampStrBytes.length + originalBytes.length);
+            combined.set(timestampStrBytes, 0);
+            combined.set(originalBytes, timestampStrBytes.length);
+
+            // Import SPKI public key
+            const pubKeyBuffer = hexToBytes(pubKeyHex);
+            const publicKey = await window.crypto.subtle.importKey(
+                "spki",
+                pubKeyBuffer,
+                {
+                    name: "ECDSA",
+                    namedCurve: "P-256"
+                },
+                true,
+                ["verify"]
+            );
+
+            // Verify ECDSA signature
+            const isValid = await window.crypto.subtle.verify(
+                {
+                    name: "ECDSA",
+                    hash: { name: "SHA-256" }
+                },
+                publicKey,
+                embeddedSigBytes,
+                combined
+            );
+
+            // Render Results
+            const date = new Date(Number(timestamp));
+            const formattedDate = date.toLocaleString('ja-JP', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+
+            // Fill technical details
+            metaVersion.textContent = `v${version}`;
+            rawTimestamp.textContent = `${timestamp} ms`;
+            embeddedSig.textContent = toHexString(embeddedSigBytes);
+
+            if (isValid) {
+                statusBadge.className = 'status-badge success';
+                statusBadge.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:currentColor;"></span>有効な署名';
+                statusTitle.textContent = '写真の真正性が検証されました';
+                statusTitle.style.color = 'var(--success-color)';
+                
+                timeDetail.style.display = 'block';
+                timeValue.textContent = formattedDate;
+                timeRelative.textContent = getRelativeTimeString(Number(timestamp));
+                
+                sigMatchDetail.style.borderLeft = '3px solid var(--success-color)';
+                sigMatchText.innerHTML = '<span style="color:var(--success-color);font-weight:600;">✓ 署名が一致します。</span> タイムスタンプと画像データは改ざんされておらず本物です。';
+            } else {
+                statusBadge.className = 'status-badge error';
+                statusBadge.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:currentColor;"></span>検証失敗';
+                statusTitle.textContent = '署名の検証に失敗しました';
+                statusTitle.style.color = 'var(--error-color)';
+                
+                timeDetail.style.display = 'block';
+                timeValue.textContent = formattedDate;
+                timeRelative.textContent = getRelativeTimeString(Number(timestamp)) + ' (注意: データが書き換えられている可能性があります)';
+                
+                sigMatchDetail.style.borderLeft = '3px solid var(--error-color)';
+                sigMatchText.innerHTML = '<span style="color:var(--error-color);font-weight:600;">✗ 署名が一致しません！</span> 画像データまたはタイムスタンプが改ざんされています。';
+            }
+
+        } catch (error) {
+            // Render error states
+            statusBadge.className = 'status-badge error';
+            statusBadge.innerHTML = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:currentColor;"></span>エラー';
+            statusTitle.textContent = 'ファイルの読み込み・検証中にエラーが発生しました';
+            statusTitle.style.color = 'var(--error-color)';
+            
+            timeDetail.style.display = 'none';
+            sigMatchDetail.style.borderLeft = '3px solid var(--error-color)';
+            sigMatchText.textContent = error.message || error;
+            embeddedSig.textContent = '-';
+            metaVersion.textContent = '-';
+            rawTimestamp.textContent = '-';
+        } finally {
+            spinner.style.display = 'none';
+            resultContainer.style.display = 'block';
+        }
+    }
+</script>
+</body>
+</html>
