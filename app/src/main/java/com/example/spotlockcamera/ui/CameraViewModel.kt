@@ -27,6 +27,7 @@ class CameraViewModel(
      */
     fun captureAndSign(imageProxy: ImageProxy) {
         _uiState.update { it.copy(isCapturing = true) }
+        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
         // viewModelScope ensures this coroutine automatically cancels if the screen/ViewModel is destroyed
         viewModelScope.launch {
@@ -45,7 +46,7 @@ class CameraViewModel(
 
                 // Execute the UseCase on the IO dispatcher (database/file writes)
                 val result = withContext(ioDispatcher) {
-                    captureAndSignUseCase.execute(originalBytes, timestamp)
+                    captureAndSignUseCase.execute(originalBytes, timestamp, rotationDegrees)
                 }
 
                 // Handle the outcome and update the flow (UI will automatically pick this up on Main thread)

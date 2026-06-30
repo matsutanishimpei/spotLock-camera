@@ -12,14 +12,26 @@ import java.util.Date
 import java.util.Locale
 
 class TimestampOverlayProcessor : ImageProcessor {
-    override fun process(originalBytes: ByteArray, timestamp: Long): ByteArray {
+    override fun process(originalBytes: ByteArray, timestamp: Long, rotationDegrees: Int): ByteArray {
         try {
             // Guardrail: Protect against empty bytes
             if (originalBytes.isEmpty()) return originalBytes
 
             val bitmap = BitmapFactory.decodeByteArray(originalBytes, 0, originalBytes.size) ?: return originalBytes
-            val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-            bitmap.recycle()
+            
+            // Rotate the bitmap if rotationDegrees is non-zero, ensuring the result is mutable
+            val mutableBitmap = if (rotationDegrees != 0) {
+                val matrix = android.graphics.Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+                val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                bitmap.recycle()
+                val mutable = rotated.copy(Bitmap.Config.ARGB_8888, true)
+                rotated.recycle()
+                mutable
+            } else {
+                val mutable = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                bitmap.recycle()
+                mutable
+            }
 
             val canvas = Canvas(mutableBitmap)
             
@@ -33,7 +45,8 @@ class TimestampOverlayProcessor : ImageProcessor {
                 setShadowLayer(3f, 2f, 2f, android.graphics.Color.BLACK)
             }
 
-            val sdf = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.getDefault())
+            // Fixed US locale to avoid regional calendar discrepancies (e.g. Buddhist calendar in Thai locales)
+            val sdf = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.US)
             val text = sdf.format(Date(timestamp))
 
             val bounds = Rect()

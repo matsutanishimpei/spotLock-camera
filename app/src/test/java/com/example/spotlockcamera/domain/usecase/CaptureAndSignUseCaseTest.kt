@@ -16,10 +16,12 @@ class CaptureAndSignUseCaseTest {
     private class FakeImageProcessor(val processResultBytes: ByteArray) : ImageProcessor {
         var capturedBytes: ByteArray? = null
         var capturedTimestamp: Long? = null
+        var capturedRotationDegrees: Int? = null
 
-        override fun process(originalBytes: ByteArray, timestamp: Long): ByteArray {
+        override fun process(originalBytes: ByteArray, timestamp: Long, rotationDegrees: Int): ByteArray {
             capturedBytes = originalBytes
             capturedTimestamp = timestamp
+            capturedRotationDegrees = rotationDegrees
             return processResultBytes
         }
     }
@@ -66,7 +68,7 @@ class CaptureAndSignUseCaseTest {
         val useCase = CaptureAndSignUseCase(fakeProcessor, fakeSigner, fakeStorage)
 
         // When
-        val result = useCase.execute(originalData, timestamp)
+        val result = useCase.execute(originalData, timestamp, 90)
 
         // Then
         assertTrue(result.isSuccess)
@@ -75,6 +77,7 @@ class CaptureAndSignUseCaseTest {
         // Verify sequential calls and data flow
         assertEquals(originalData, fakeProcessor.capturedBytes)
         assertEquals(timestamp, fakeProcessor.capturedTimestamp)
+        assertEquals(90, fakeProcessor.capturedRotationDegrees)
 
         assertEquals(processedData, fakeSigner.capturedBytes)
         assertEquals(timestamp, fakeSigner.capturedTimestamp)

@@ -48,12 +48,26 @@ class CameraViewModelTest {
         }
     }
 
-    private fun createFakeImageProxy(bytes: ByteArray, onClose: () -> Unit = {}): ImageProxy {
+    private fun createFakeImageProxy(
+        bytes: ByteArray,
+        rotationDegrees: Int = 0,
+        onClose: () -> Unit = {}
+    ): ImageProxy {
         val plane = object : ImageProxy.PlaneProxy {
             override fun getBuffer(): java.nio.ByteBuffer = java.nio.ByteBuffer.wrap(bytes)
             override fun getRowStride(): Int = 0
             override fun getPixelStride(): Int = 0
         }
+
+        val imageInfo = Proxy.newProxyInstance(
+            androidx.camera.core.ImageInfo::class.java.classLoader,
+            arrayOf(androidx.camera.core.ImageInfo::class.java)
+        ) { _, method, _ ->
+            when (method.name) {
+                "getRotationDegrees" -> rotationDegrees
+                else -> 0
+            }
+        } as androidx.camera.core.ImageInfo
 
         return Proxy.newProxyInstance(
             ImageProxy::class.java.classLoader,
@@ -61,6 +75,7 @@ class CameraViewModelTest {
         ) { _, method, _ ->
             when (method.name) {
                 "getPlanes" -> arrayOf(plane)
+                "getImageInfo" -> imageInfo
                 "close" -> {
                     onClose()
                     null
@@ -76,7 +91,7 @@ class CameraViewModelTest {
     fun captureAndSign_success_savesImageAndSetsToastMessage() = runTest {
         // Given
         val processor = object : ImageProcessor {
-            override fun process(originalBytes: ByteArray, timestamp: Long): ByteArray = originalBytes
+            override fun process(originalBytes: ByteArray, timestamp: Long, rotationDegrees: Int): ByteArray = originalBytes
         }
         val signer = object : ImageSigner {
             override fun signAndEmbed(imageBytes: ByteArray, timestamp: Long): ByteArray = imageBytes
@@ -87,9 +102,9 @@ class CameraViewModelTest {
         val viewModel = CameraViewModel(useCase, testDispatcher)
 
         var isClosed = false
-        val imageProxy = createFakeImageProxy(byteArrayOf(1, 2, 3)) {
+        val imageProxy = createFakeImageProxy(byteArrayOf(1, 2, 3), rotationDegrees = 90, onClose = {
             isClosed = true
-        }
+        })
 
         // When
         viewModel.captureAndSign(imageProxy)
@@ -104,7 +119,7 @@ class CameraViewModelTest {
     fun captureAndSign_failure_closesImageProxyAndSetsErrorToast() = runTest {
         // Given
         val processor = object : ImageProcessor {
-            override fun process(originalBytes: ByteArray, timestamp: Long): ByteArray = originalBytes
+            override fun process(originalBytes: ByteArray, timestamp: Long, rotationDegrees: Int): ByteArray = originalBytes
         }
         val signer = object : ImageSigner {
             override fun signAndEmbed(imageBytes: ByteArray, timestamp: Long): ByteArray = imageBytes
@@ -114,9 +129,9 @@ class CameraViewModelTest {
         val viewModel = CameraViewModel(useCase, testDispatcher)
 
         var isClosed = false
-        val imageProxy = createFakeImageProxy(byteArrayOf(1, 2, 3)) {
+        val imageProxy = createFakeImageProxy(byteArrayOf(1, 2, 3), rotationDegrees = 90, onClose = {
             isClosed = true
-        }
+        })
 
         // When
         viewModel.captureAndSign(imageProxy)
@@ -131,8 +146,8 @@ class CameraViewModelTest {
     fun clearToastMessage_resetsToastToNull() = runTest {
         // Given
         val useCase = CaptureAndSignUseCase(
-            object : ImageProcessor { override fun process(o: ByteArray, t: Long) = o },
-            object : ImageSigner { override fun signAndEmbed(i: ByteArray, t: Long) = i },
+            object : ImageProcessor { override fun process(originalBytes: ByteArray, timestamp: Long, rotationDegrees: Int) = originalBytes },
+            object : ImageSigner { override fun signAndEmbed(imageBytes: ByteArray, timestamp: Long) = imageBytes },
             FakeImageStorage()
         )
         val viewModel = CameraViewModel(useCase, testDispatcher)
