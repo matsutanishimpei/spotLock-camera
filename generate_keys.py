@@ -34,8 +34,8 @@ def generate_key_pair():
     print("-" * 60)
     print("\n[Android App: local.properties]")
     print(f"spotlock.privateKey={private_b64}")
-    print("\n[Verifier Web Page: web/index.html]")
-    print(f"const PUBLIC_KEY_HEX = \"{public_hex}\";")
+    print("\n[Web Dashboard: web/src/utils/crypto.js]")
+    print(f'PUBLIC_KEYS に追加: N: "{public_hex}"')
     print("-" * 60)
 
 if __name__ == "__main__":

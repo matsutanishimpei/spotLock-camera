@@ -22,9 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,7 +35,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.spotlockcamera.ui.CameraViewModel
 import com.example.spotlockcamera.ui.CameraViewModelFactory
-import java.util.concurrent.Executors
+
 
 @Composable
 fun CameraScreen(
@@ -52,11 +50,9 @@ fun CameraScreen(
     // Collect flow state from ViewModel
     val uiState by viewModel.uiState.collectAsState()
 
-    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val imageCapture = remember { ImageCapture.Builder().build() }
 
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
-    var previewView: PreviewView? by remember { mutableStateOf(null) }
 
     // Display one-time Toast notifications from ViewModel State
     LaunchedEffect(uiState.toastMessage) {
@@ -66,32 +62,10 @@ fun CameraScreen(
         }
     }
 
-    LaunchedEffect(cameraProviderFuture) {
-        val cameraProvider = cameraProviderFuture.get()
-        val preview = Preview.Builder().build()
-        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-        try {
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview,
-                imageCapture
-            )
-            previewView?.let {
-                preview.setSurfaceProvider(it.surfaceProvider)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("CameraScreen", "Use case binding failed", e)
-        }
-    }
-
     Box(modifier = modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).also {
-                    previewView = it
                     cameraProviderFuture.addListener({
                         val cameraProvider = cameraProviderFuture.get()
                         val preview = Preview.Builder().build()
@@ -106,7 +80,7 @@ fun CameraScreen(
                             )
                             preview.setSurfaceProvider(it.surfaceProvider)
                         } catch (e: Exception) {
-                            android.util.Log.e("CameraScreen", "Binding failed in PreviewView factory", e)
+                            android.util.Log.e("CameraScreen", "Use case binding failed", e)
                         }
                     }, ContextCompat.getMainExecutor(ctx))
                 }

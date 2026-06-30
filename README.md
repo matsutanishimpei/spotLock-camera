@@ -1,5 +1,8 @@
 # spotLock-camera 📸
 
+[![Android CI](https://github.com/matsutanishimpei/spotLock-camera/actions/workflows/ci.yml/badge.svg)](https://github.com/matsutanishimpei/spotLock-camera/actions/workflows/ci.yml)
+[![Deploy Web Dashboard](https://github.com/matsutanishimpei/spotLock-camera/actions/workflows/deploy-web.yml/badge.svg)](https://github.com/matsutanishimpei/spotLock-camera/actions/workflows/deploy-web.yml)
+
 「その場所、その時間にユーザーがいたこと」を、**位置情報（GPS）を一切使わずに証明する** Android ネイティブカメラアプリ、およびそのWeb検証ダッシュボードシステムです。
 
 撮影した写真の `APP15` セグメント（独自のメタデータ領域）に、撮影日時のタイムスタンプと改ざん防止の暗号署名を直接書き込み、画像の完全性と撮影時間の真正性を担保します。
@@ -28,12 +31,12 @@
 ### 2. 暗号署名の生成仕様 (ECDSA P-256)
 画像の改ざんやタイムスタンプの捏造を防ぐため、アプリ内の秘密鍵を用いて非対称鍵署名（ECDSA）を行います。
 
-$$\text{Signature} = \text{ECDSA-P256}(\text{秘密鍵}, \text{タイムスタンプ文字列} + \text{元JPEG画像データの全バイナリ})$$
+$$\text{Signature} = \text{ECDSA-P256}(\text{秘密鍵}, \text{タイムスタンプ文字列} + \text{加工済みJPEG画像データの全バイナリ})$$
 
 * **秘密鍵 (Private Key)**: `local.properties` に記述された EC P-256 秘密鍵（Base64 PKCS#8形式）。ビルド時にアプリ内部に安全に注入されます。
 * **公開鍵 (Public Key)**: 検証ダッシュボード側で保持する検証用キー。ソースコードに直接公開されても安全です（署名の偽造は不可能です）。
 * **タイムスタンプ**: 撮影完了の瞬間にアプリ内部で取得した正確なUNIX時間（ミリ秒）。
-* **元JPEG画像データ**: カメラセンサーからキャプチャした生のJPEGバイナリ（署名挿入前）。画像データが1ピクセルでも変更されると署名検証が失敗します。
+* **加工済みJPEG画像データ**: カメラセンサーからキャプチャした画像に対し、タイムスタンプの視覚的オーバーレイ（日時焼き込み）を施した後のJPEGバイナリ（APP15署名セグメント挿入前）。署名はこの加工済み画像全体に対して計算されるため、画像データが1ピクセルでも変更されると署名検証が失敗します。
 
 ### 3. JPEGバイナリ埋め込み仕様（APP15）
 JPEG標準のセグメント領域のうち、一般的なビューアからは無視される **`APP15` マーカー (`0xFFEF`)** を使用してデータを挿入します。
@@ -189,5 +192,4 @@ spotlock.privateKey=YOUR_GENERATED_PRIVATE_KEY_BASE64
 * **[core/storage/](app/src/main/java/com/example/spotlockcamera/core/storage/)**: [MediaStoreImageStorage.kt](app/src/main/java/com/example/spotlockcamera/core/storage/MediaStoreImageStorage.kt) (MediaStoreへの保存および自動再試行)。
 * **[web/src/App.jsx](web/src/App.jsx)**: ハッシュルーティングを用いたデスクトップとモバイルの統合。
 * **[web/src/components/](web/src/components/)**: デスクトップダッシュボードおよびモバイル用個別ビューのUIコンポーネント。
-* **[verify_signature.py](verify_signature.py)**: JPEGファイルから `APP15` をパースし、ECDSA検証を行うPythonスクリプト。
 * **[generate_keys.py](generate_keys.py)**: P-256の秘密鍵（Base64）および公開鍵（Hex）ペアを生成するユーティリティ。
