@@ -32,7 +32,9 @@ jobs:
           echo "spotlock.privateKey=" >> local.properties
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest
+        run: |
+          chmod +x ./gradlew
+          ./gradlew testDebugUnitTest
 
       - name: Upload test results
         if: always()
