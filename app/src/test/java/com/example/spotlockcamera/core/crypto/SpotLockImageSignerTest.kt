@@ -96,4 +96,34 @@ class SpotLockImageSignerTest {
             assertEquals("KeyStore corrupted", e.cause?.message)
         }
     }
+
+    @Test
+    fun generateIntegrationTestArtifacts() {
+        val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+        keyPairGenerator.initialize(256)
+        val keyPair = keyPairGenerator.generateKeyPair()
+        
+        val keyProvider = object : PrivateKeyProvider {
+            override fun getPrivateKey(): PrivateKey = keyPair.private
+        }
+        val signer = SpotLockImageSigner(keyProvider)
+        
+        val dummyOriginalJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0x11, 0x22, 0x33, 0x44)
+        val timestamp = 1719736800000L
+        
+        val signedBytes = signer.signAndEmbed(dummyOriginalJpeg, timestamp)
+        
+        val outputDir = java.io.File("build/integration-test-artifacts").apply { mkdirs() }
+        
+        // Save the signed photo
+        java.io.File(outputDir, "test_signed_image.jpg").writeBytes(signedBytes)
+        
+        // Save the public key in SPKI DER format as Hex
+        val pubDer = keyPair.public.encoded
+        val pubHex = pubDer.joinToString("") { "%02x".format(it) }
+        java.io.File(outputDir, "web_test_public_key.hex").writeText(pubHex)
+        
+        assertTrue(java.io.File(outputDir, "test_signed_image.jpg").exists())
+        assertTrue(java.io.File(outputDir, "web_test_public_key.hex").exists())
+    }
 }

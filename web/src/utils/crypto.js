@@ -2,7 +2,8 @@
 // In production, this is loaded from VITE_SPOTLOCK_PUBLIC_KEYS environment variable.
 let keys = {};
 try {
-    const rawKeys = import.meta.env.VITE_SPOTLOCK_PUBLIC_KEYS;
+    const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : null;
+    const rawKeys = env ? env.VITE_SPOTLOCK_PUBLIC_KEYS : null;
     if (rawKeys) {
         keys = JSON.parse(rawKeys);
     } else {
