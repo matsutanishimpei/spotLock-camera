@@ -4,3 +4,6 @@
 
 # SpotLock Cryptographic Private Key (Asymmetric EC P-256 Private Key in Base64 PKCS#8 format)
 spotlock.privateKey=YourPrivateKeyBase64Here
+
+# SpotLock Cryptographic Private Key Version (Default: 1)
+spotlock.keyVersion=1
