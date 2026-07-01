@@ -11,3 +11,10 @@
 local.properties
 *.apk
 .kotlin/
+
+# Keystore files (Android signing keys)
+*.jks
+*.keystore
+
+# Windows thumbnail cache
+Thumbs.db
