@@ -13,6 +13,7 @@ val localProperties = Properties().apply {
     }
 }
 val privateKey = localProperties.getProperty("spotlock.privateKey") ?: ""
+val keyVersionStr = (localProperties.getProperty("spotlock.keyVersion") ?: "1").trim()
 
 android {
     namespace = "com.example.spotlockcamera"
@@ -28,6 +29,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "SPOTLOCK_PRIVATE_KEY", "\"$privateKey\"")
+        buildConfigField("int", "SPOTLOCK_KEY_VERSION", keyVersionStr)
     }
 
     buildTypes {

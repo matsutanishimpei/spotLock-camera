@@ -1,5 +1,6 @@
 package com.example.spotlockcamera.core.crypto
 
+import com.example.spotlockcamera.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.security.Signature
 
@@ -27,7 +28,7 @@ class SpotLockImageSigner(private val keyProvider: PrivateKeyProvider) : ImageSi
         // 8 bytes Magic
         payloadStream.write("SPOTLOCK".toByteArray(Charsets.US_ASCII))
         // 1 byte Version
-        payloadStream.write(0x01)
+        payloadStream.write(BuildConfig.SPOTLOCK_KEY_VERSION)
         // 8 bytes Timestamp (Long, Big Endian)
         for (i in 7 downTo 0) {
             payloadStream.write(((timestamp shr (i * 8)) and 0xFF).toInt())
