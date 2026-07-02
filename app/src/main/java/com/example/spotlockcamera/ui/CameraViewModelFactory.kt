@@ -8,6 +8,7 @@ import com.example.spotlockcamera.core.crypto.SpotLockImageSigner
 import com.example.spotlockcamera.core.crypto.KeystoreKeyProvider
 import com.example.spotlockcamera.core.storage.MediaStoreImageStorage
 import com.example.spotlockcamera.domain.usecase.CaptureAndSignUseCase
+import com.example.spotlockcamera.infrastructure.reporter.FirebaseErrorReporter
 
 class CameraViewModelFactory(
     private val context: Context
@@ -20,8 +21,9 @@ class CameraViewModelFactory(
             val processor = TimestampOverlayProcessor()
             val storage = MediaStoreImageStorage(context.applicationContext)
             val useCase = CaptureAndSignUseCase(processor, signer, storage)
+            val errorReporter = FirebaseErrorReporter()
 
-            return CameraViewModel(useCase) as T
+            return CameraViewModel(useCase, errorReporter) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }

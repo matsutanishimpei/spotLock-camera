@@ -4,6 +4,7 @@ import androidx.camera.core.ImageProxy
 import com.example.spotlockcamera.core.image.ImageProcessor
 import com.example.spotlockcamera.core.crypto.ImageSigner
 import com.example.spotlockcamera.core.storage.ImageStorage
+import com.example.spotlockcamera.domain.reporter.FakeErrorReporter
 import com.example.spotlockcamera.domain.usecase.CaptureAndSignUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -99,7 +100,8 @@ class CameraViewModelTest {
         val storage = FakeImageStorage()
         val useCase = CaptureAndSignUseCase(processor, signer, storage)
         // Inject testDispatcher as ioDispatcher for synchronous execution in tests
-        val viewModel = CameraViewModel(useCase, testDispatcher)
+        val fakeReporter = FakeErrorReporter()
+        val viewModel = CameraViewModel(useCase, fakeReporter, testDispatcher)
 
         var isClosed = false
         val imageProxy = createFakeImageProxy(byteArrayOf(1, 2, 3), rotationDegrees = 90, onClose = {
@@ -126,7 +128,8 @@ class CameraViewModelTest {
         }
         val failingStorage = FakeImageStorage(fail = true)
         val useCase = CaptureAndSignUseCase(processor, signer, failingStorage)
-        val viewModel = CameraViewModel(useCase, testDispatcher)
+        val fakeReporter = FakeErrorReporter()
+        val viewModel = CameraViewModel(useCase, fakeReporter, testDispatcher)
 
         var isClosed = false
         val imageProxy = createFakeImageProxy(byteArrayOf(1, 2, 3), rotationDegrees = 90, onClose = {
@@ -140,6 +143,8 @@ class CameraViewModelTest {
         assertTrue(isClosed)
         assertFalse(viewModel.uiState.value.isCapturing)
         assertEquals("Error: Storage Full", viewModel.uiState.value.toastMessage)
+        assertEquals("Storage Full", fakeReporter.lastReportedError?.message)
+        assertEquals("Image signature/saving failed", fakeReporter.lastReportedMessage)
     }
 
     @Test
@@ -150,7 +155,8 @@ class CameraViewModelTest {
             object : ImageSigner { override fun signAndEmbed(imageBytes: ByteArray, timestamp: Long) = imageBytes },
             FakeImageStorage()
         )
-        val viewModel = CameraViewModel(useCase, testDispatcher)
+        val fakeReporter = FakeErrorReporter()
+        val viewModel = CameraViewModel(useCase, fakeReporter, testDispatcher)
         val imageProxy = createFakeImageProxy(byteArrayOf(1))
         viewModel.captureAndSign(imageProxy)
 

@@ -3,6 +3,7 @@ package com.example.spotlockcamera.ui
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.spotlockcamera.domain.reporter.ErrorReporter
 import com.example.spotlockcamera.domain.usecase.CaptureAndSignUseCase
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,7 @@ import kotlinx.coroutines.withContext
 
 class CameraViewModel(
     private val captureAndSignUseCase: CaptureAndSignUseCase,
+    private val errorReporter: ErrorReporter,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
@@ -60,6 +62,7 @@ class CameraViewModel(
                         }
                     },
                     onFailure = { e ->
+                        errorReporter.report(e, "Image signature/saving failed")
                         _uiState.update {
                             it.copy(
                                 isCapturing = false,
@@ -70,6 +73,7 @@ class CameraViewModel(
                 )
             } catch (e: Exception) {
                 imageProxy.close()
+                errorReporter.report(e, "Image capture handling failed")
                 _uiState.update {
                     it.copy(
                         isCapturing = false,
