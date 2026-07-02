@@ -1,24 +1,8 @@
 // Configuration: Version mapping to EC P-256 SPKI Public Keys (Hex format)
-// In production, this is loaded from VITE_SPOTLOCK_PUBLIC_KEYS environment variable.
-let keys = {};
-try {
-    const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : null;
-    const rawKeys = env ? env.VITE_SPOTLOCK_PUBLIC_KEYS : null;
-    if (rawKeys) {
-        keys = JSON.parse(rawKeys);
-    } else {
-        // Default local key mapping for development
-        keys = {
-            1: "3059301306072a8648ce3d020106082a8648ce3d03010703420004427776dd8f0e6d5c6f9b6f675261a27468be0df79e1099985c6a93843555643caabf8aac144411353e9c45d8ec3ee32e813167118c2a682cca434b329bdb5644"
-        };
-    }
-} catch (e) {
-    console.error("Failed to parse public keys environment variable:", e);
-    keys = {
-        1: "3059301306072a8648ce3d020106082a8648ce3d03010703420004427776dd8f0e6d5c6f9b6f675261a27468be0df79e1099985c6a93843555643caabf8aac144411353e9c45d8ec3ee32e813167118c2a682cca434b329bdb5644"
-    };
-}
-export const PUBLIC_KEYS = keys;
+// Used for legacy v1 format validation.
+export const PUBLIC_KEYS = {
+    1: "3059301306072a8648ce3d020106082a8648ce3d03010703420004427776dd8f0e6d5c6f9b6f675261a27468be0df79e1099985c6a93843555643caabf8aac144411353e9c45d8ec3ee32e813167118c2a682cca434b329bdb5644"
+};
 
 /**
  * Verifies a SpotLock JPEG photo file's metadata and cryptographic signature.
