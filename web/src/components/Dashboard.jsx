@@ -95,12 +95,14 @@ export default function Dashboard() {
     const [formId, setFormId] = useState('');
     const [formName, setFormName] = useState('');
     const [formStation, setFormStation] = useState('');
-    const [formSchoolStation, setFormSchoolStation] = useState('');
-    const [formTransitTime, setFormTransitTime] = useState('');
-    const [formTargetTime, setFormTargetTime] = useState('');
+    const [formTransitTimeA, setFormTransitTimeA] = useState('');
+    const [formTransitTimeB, setFormTransitTimeB] = useState('');
+    const [formTargetTimeA, setFormTargetTimeA] = useState('');
+    const [formTargetTimeB, setFormTargetTimeB] = useState('');
     const [formPublicKey, setFormPublicKey] = useState('');
-    const [lastLookup, setLastLookup] = useState({ from: '', to: '' });
-    const [calcLookupNote, setCalcLookupNote] = useState('');
+    const [lastLookup, setLastLookup] = useState({ from: '', toA: '', toB: '' });
+    const [calcLookupNoteA, setCalcLookupNoteA] = useState('');
+    const [calcLookupNoteB, setCalcLookupNoteB] = useState('');
 
     // Detailed photo verification state (Tab 2)
     const [detailedPhotoInfo, setDetailedPhotoInfo] = useState(null);
@@ -134,6 +136,28 @@ export default function Dashboard() {
         "横浜": { "渋谷": 28, "品川": 20, "東京": 25, "新宿": 30 }
     };
 
+    // Helper to normalize older schema datasets
+    const normalizeLoadedStudents = (data, defaultStationA, defaultStationB) => {
+        if (!Array.isArray(data)) return [];
+        return data.map(s => {
+            const transitTimeA = s.transitTimeA !== undefined ? s.transitTimeA : (s.transitTime !== undefined ? s.transitTime : '');
+            const transitTimeB = s.transitTimeB !== undefined ? s.transitTimeB : (s.transitTime !== undefined ? s.transitTime : '');
+            const targetTimeA = s.targetTimeA || s.targetTime || '09:00';
+            const targetTimeB = s.targetTimeB || s.targetTime || '09:00';
+            const selectedRoute = s.selectedRoute || 'A';
+            const schoolStation = s.schoolStation || defaultStationA;
+            return {
+                ...s,
+                transitTimeA,
+                transitTimeB,
+                targetTimeA,
+                targetTimeB,
+                selectedRoute,
+                schoolStation
+            };
+        });
+    };
+
     // ----------------------------------------------------
     // Life Cycle & LocalStorage / File Handle loading
     // ----------------------------------------------------
@@ -161,7 +185,8 @@ export default function Dashboard() {
                         const file = await handle.getFile();
                         const text = await file.text();
                         const data = JSON.parse(text);
-                        setStudents(data);
+                        const normalized = normalizeLoadedStudents(data, stationA, stationB);
+                        setStudents(normalized);
                         setSyncFileHandle(handle);
                         setSyncFileName(handle.name);
                         showToast(`ファイルから同期しました: ${handle.name}`, 'success');
@@ -177,15 +202,16 @@ export default function Dashboard() {
             const stored = localStorage.getItem('spotlock_students');
             if (stored) {
                 try {
-                    setStudents(JSON.parse(stored));
+                    const data = JSON.parse(stored);
+                    setStudents(normalizeLoadedStudents(data, stationA, stationB));
                 } catch (e) {
                     console.error("Failed to parse students from localStorage", e);
                 }
             } else {
                 const initialMock = [
-                    { id: 'mock-1', name: '佐藤 優太', station: '新宿駅', schoolStation: '渋谷駅', targetTime: '08:15', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
-                    { id: 'mock-2', name: '鈴木 美咲', station: '渋谷駅', schoolStation: '渋谷駅', targetTime: '08:30', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
-                    { id: 'mock-3', name: '高橋 健太', station: '池袋駅', schoolStation: '渋谷駅', targetTime: '08:00', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null }
+                    { id: 'mock-1', name: '佐藤 優太', station: '新宿駅', transitTimeA: 7, transitTimeB: 15, targetTimeA: '08:43', targetTimeB: '08:40', selectedRoute: 'A', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
+                    { id: 'mock-2', name: '鈴木 美咲', station: '渋谷駅', transitTimeA: 0, transitTimeB: 2, targetTimeA: '08:50', targetTimeB: '08:53', selectedRoute: 'A', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
+                    { id: 'mock-3', name: '高橋 健太', station: '池袋駅', transitTimeA: 11, transitTimeB: 22, targetTimeA: '08:39', targetTimeB: '08:33', selectedRoute: 'A', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null }
                 ];
                 setStudents(initialMock);
                 localStorage.setItem('spotlock_students', JSON.stringify(initialMock));
@@ -221,46 +247,71 @@ export default function Dashboard() {
         }
     };
 
-    // Recalculate transit time when inputs change
+    // Recalculate transit times for both routes when inputs change
     useEffect(() => {
         const from = normalizeStation(formStation);
-        const to = normalizeStation(formSchoolStation || globalStationA);
+        const toA = normalizeStation(globalStationA);
+        const toB = normalizeStation(globalStationB);
 
-        if (from && to && MOCK_TRANSIT_DATABASE[from] && MOCK_TRANSIT_DATABASE[from][to]) {
-            const detectedTime = MOCK_TRANSIT_DATABASE[from][to];
-            if (lastLookup.from !== from || lastLookup.to !== to) {
-                setFormTransitTime(detectedTime);
-                setLastLookup({ from, to });
-            }
-            setCalcLookupNote(`✓ 自動設定: ${from}駅 ⇄ ${to}駅 (${detectedTime}分)`);
+        let detectedA = null;
+        let detectedB = null;
+
+        if (from && toA && MOCK_TRANSIT_DATABASE[from] && MOCK_TRANSIT_DATABASE[from][toA]) {
+            detectedA = MOCK_TRANSIT_DATABASE[from][toA];
+        }
+        if (from && toB && MOCK_TRANSIT_DATABASE[from] && MOCK_TRANSIT_DATABASE[from][toB]) {
+            detectedB = MOCK_TRANSIT_DATABASE[from][toB];
+        }
+
+        if (lastLookup.from !== from || lastLookup.toA !== toA || lastLookup.toB !== toB) {
+            if (detectedA !== null) setFormTransitTimeA(detectedA);
+            if (detectedB !== null) setFormTransitTimeB(detectedB);
+            setLastLookup({ from, toA, toB });
+        }
+
+        if (detectedA !== null) {
+            setCalcLookupNoteA(`✓ 自動設定: ${from}駅 ➔ 駅A (${detectedA}分)`);
         } else {
-            setCalcLookupNote('');
+            setCalcLookupNoteA('');
         }
-    }, [formStation, formSchoolStation, globalStationA]);
 
-    // Recalculate target time when transit time or transit options change
+        if (detectedB !== null) {
+            setCalcLookupNoteB(`✓ 自動設定: ${from}駅 ➔ 駅B (${detectedB}分)`);
+        } else {
+            setCalcLookupNoteB('');
+        }
+    }, [formStation, globalStationA, globalStationB]);
+
+    // Recalculate target times when transit times or settings change
     useEffect(() => {
-        if (formTransitTime === '') {
-            setFormTargetTime('');
-            return;
+        // Route A Target
+        if (formTransitTimeA === '') {
+            setFormTargetTimeA('');
+        } else {
+            const transit = Number(formTransitTimeA) || 0;
+            const totalOffset = globalWalkTimeA + transit;
+            const [hours, minutes] = globalClassTime.split(':').map(Number);
+            let totalMinutes = hours * 60 + minutes - totalOffset;
+            if (totalMinutes < 0) totalMinutes += 24 * 60;
+            const targetHours = Math.floor(totalMinutes / 60) % 24;
+            const targetMinutes = totalMinutes % 60;
+            setFormTargetTimeA(`${String(targetHours).padStart(2, '0')}:${String(targetMinutes).padStart(2, '0')}`);
         }
 
-        const transit = Number(formTransitTime) || 0;
-        const activeSchoolStation = formSchoolStation || globalStationA;
-        const activeWalkTime = activeSchoolStation === globalStationB ? globalWalkTimeB : globalWalkTimeA;
-
-        const totalOffset = activeWalkTime + transit;
-        const [hours, minutes] = globalClassTime.split(':').map(Number);
-        
-        let totalMinutes = hours * 60 + minutes - totalOffset;
-        if (totalMinutes < 0) {
-            totalMinutes += 24 * 60; // wrap
+        // Route B Target
+        if (formTransitTimeB === '') {
+            setFormTargetTimeB('');
+        } else {
+            const transit = Number(formTransitTimeB) || 0;
+            const totalOffset = globalWalkTimeB + transit;
+            const [hours, minutes] = globalClassTime.split(':').map(Number);
+            let totalMinutes = hours * 60 + minutes - totalOffset;
+            if (totalMinutes < 0) totalMinutes += 24 * 60;
+            const targetHours = Math.floor(totalMinutes / 60) % 24;
+            const targetMinutes = totalMinutes % 60;
+            setFormTargetTimeB(`${String(targetHours).padStart(2, '0')}:${String(targetMinutes).padStart(2, '0')}`);
         }
-
-        const targetHours = Math.floor(totalMinutes / 60) % 24;
-        const targetMinutes = totalMinutes % 60;
-        setFormTargetTime(`${String(targetHours).padStart(2, '0')}:${String(targetMinutes).padStart(2, '0')}`);
-    }, [formTransitTime, globalClassTime, formSchoolStation, globalStationA, globalStationB, globalWalkTimeA, globalWalkTimeB]);
+    }, [formTransitTimeA, formTransitTimeB, globalClassTime, globalWalkTimeA, globalWalkTimeB]);
 
     // ----------------------------------------------------
     // Helper Functions
@@ -332,9 +383,7 @@ export default function Dashboard() {
     // Form Submissions
     const handleSaveStudent = (e) => {
         e.preventDefault();
-        if (!formName.trim() || !formStation.trim() || !formTargetTime) return;
-
-        const finalSchoolStation = formSchoolStation || globalStationA;
+        if (!formName.trim() || !formStation.trim() || !formTargetTimeA || !formTargetTimeB) return;
 
         if (formId) {
             // Edit
@@ -343,11 +392,23 @@ export default function Dashboard() {
                     let nextStatus = s.status;
                     let nextCheckTime = s.checkTime;
                     if ((s.status === 'ontime' || s.status === 'late') && s.checkTimeRaw) {
-                        const timeInfo = getCaptureTimeInfo(s.checkTimeRaw, formTargetTime);
+                        const targetTime = s.selectedRoute === 'B' ? formTargetTimeB : formTargetTimeA;
+                        const timeInfo = getCaptureTimeInfo(s.checkTimeRaw, targetTime);
                         nextStatus = timeInfo.onTime ? 'ontime' : 'late';
                         nextCheckTime = timeInfo.timeDisplay;
                     }
-                    return { ...s, name: formName, station: formStation, schoolStation: finalSchoolStation, targetTime: formTargetTime, status: nextStatus, checkTime: nextCheckTime, publicKey: formPublicKey.trim() || null };
+                    return {
+                        ...s,
+                        name: formName,
+                        station: formStation,
+                        transitTimeA: Number(formTransitTimeA) || 0,
+                        transitTimeB: Number(formTransitTimeB) || 0,
+                        targetTimeA: formTargetTimeA,
+                        targetTimeB: formTargetTimeB,
+                        status: nextStatus,
+                        checkTime: nextCheckTime,
+                        publicKey: formPublicKey.trim() || null
+                    };
                 }
                 return s;
             });
@@ -360,8 +421,11 @@ export default function Dashboard() {
                 id: 'stud-' + Date.now() + Math.random().toString(36).substr(2, 5),
                 name: formName,
                 station: formStation,
-                schoolStation: finalSchoolStation,
-                targetTime: formTargetTime,
+                transitTimeA: Number(formTransitTimeA) || 0,
+                transitTimeB: Number(formTransitTimeB) || 0,
+                targetTimeA: formTargetTimeA,
+                targetTimeB: formTargetTimeB,
+                selectedRoute: 'A',
                 status: 'unverified',
                 checkTime: null,
                 checkTimeRaw: null,
@@ -375,24 +439,14 @@ export default function Dashboard() {
     };
 
     const startEditStudent = (student) => {
-        const activeSchoolStation = student.schoolStation || globalStationA;
         setFormId(student.id);
         setFormName(student.name);
         setFormStation(student.station);
-        setFormTargetTime(student.targetTime);
+        setFormTransitTimeA(student.transitTimeA !== undefined ? student.transitTimeA : '');
+        setFormTransitTimeB(student.transitTimeB !== undefined ? student.transitTimeB : '');
+        setFormTargetTimeA(student.targetTimeA || '');
+        setFormTargetTimeB(student.targetTimeB || '');
         setFormPublicKey(student.publicKey || '');
-        setFormSchoolStation(activeSchoolStation);
-
-        // Reverse transit calculation using active walk time
-        const activeWalkTime = activeSchoolStation === globalStationB ? globalWalkTimeB : globalWalkTimeA;
-        const [classHours, classMins] = globalClassTime.split(':').map(Number);
-        const [targetHours, targetMins] = student.targetTime.split(':').map(Number);
-        let classTotal = classHours * 60 + classMins;
-        let targetTotal = targetHours * 60 + targetMins;
-        if (classTotal < targetTotal) classTotal += 24 * 60;
-
-        const diff = classTotal - targetTotal;
-        setFormTransitTime(Math.max(0, diff - activeWalkTime));
     };
 
     const handleCancelEdit = () => {
@@ -403,11 +457,13 @@ export default function Dashboard() {
         setFormId('');
         setFormName('');
         setFormStation('');
-        setFormSchoolStation('');
-        setFormTransitTime('');
-        setFormTargetTime('');
+        setFormTransitTimeA('');
+        setFormTransitTimeB('');
+        setFormTargetTimeA('');
+        setFormTargetTimeB('');
         setFormPublicKey('');
-        setCalcLookupNote('');
+        setCalcLookupNoteA('');
+        setCalcLookupNoteB('');
     };
 
     const handleDeleteStudent = (student) => {
@@ -471,9 +527,9 @@ export default function Dashboard() {
             Object.values(sessionPhotoUrls).forEach(url => URL.revokeObjectURL(url));
             setSessionPhotoUrls({});
             const mock = [
-                { id: 'mock-yuta', name: '佐藤 優太', station: '新宿駅', schoolStation: '渋谷駅', targetTime: '08:15', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
-                { id: 'mock-misaki', name: '鈴木 美咲', station: '渋谷駅', schoolStation: '渋谷駅', targetTime: '08:30', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
-                { id: 'mock-kenta', name: '高橋 健太', station: '池袋駅', schoolStation: '渋谷駅', targetTime: '08:00', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null }
+                { id: 'mock-yuta', name: '佐藤 優太', station: '新宿駅', transitTimeA: 7, transitTimeB: 15, targetTimeA: '08:43', targetTimeB: '08:40', selectedRoute: 'A', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
+                { id: 'mock-misaki', name: '鈴木 美咲', station: '渋谷駅', transitTimeA: 0, transitTimeB: 2, targetTimeA: '08:50', targetTimeB: '08:53', selectedRoute: 'A', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
+                { id: 'mock-kenta', name: '高橋 健太', station: '池袋駅', transitTimeA: 11, transitTimeB: 22, targetTimeA: '08:39', targetTimeB: '08:33', selectedRoute: 'A', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null }
             ];
             updateStudentsState(mock);
             showToast('デモデータをロードしました。', 'success');
@@ -511,7 +567,8 @@ export default function Dashboard() {
                 const file = await handle.getFile();
                 const text = await file.text();
                 const data = JSON.parse(text);
-                setStudents(data);
+                const normalized = normalizeLoadedStudents(data, globalStationA, globalStationB);
+                setStudents(normalized);
                 
                 showToast(`ファイル同期を設定しました: ${handle.name}`, 'success');
             }
@@ -540,7 +597,8 @@ export default function Dashboard() {
                 const file = await syncFileHandle.getFile();
                 const text = await file.text();
                 const data = JSON.parse(text);
-                setStudents(data);
+                const normalized = normalizeLoadedStudents(data, globalStationA, globalStationB);
+                setStudents(normalized);
                 showToast(`最新データに再同期しました。`, 'success');
             }
         } catch (err) {
@@ -574,7 +632,8 @@ export default function Dashboard() {
             try {
                 const parsed = JSON.parse(event.target.result);
                 if (Array.isArray(parsed)) {
-                    updateStudentsState(parsed);
+                    const normalized = normalizeLoadedStudents(parsed, globalStationA, globalStationB);
+                    updateStudentsState(normalized);
                     showToast("JSONファイルからデータをインポートしました。", "success");
                 } else {
                     showToast("不正なデータ形式です。配列形式の JSON である必要があります。", "error");
@@ -588,14 +647,35 @@ export default function Dashboard() {
         e.target.value = '';
     };
 
+    // Route toggler with automatic status re-evaluation
+    const handleToggleRoute = (studentId, route) => {
+        const updated = students.map(s => {
+            if (s.id === studentId) {
+                let nextStatus = s.status;
+                let nextCheckTime = s.checkTime;
+                
+                if ((s.status === 'ontime' || s.status === 'late') && s.checkTimeRaw) {
+                    const targetTime = route === 'B' ? s.targetTimeB : s.targetTimeA;
+                    const timeInfo = getCaptureTimeInfo(s.checkTimeRaw, targetTime);
+                    nextStatus = timeInfo.onTime ? 'ontime' : 'late';
+                    nextCheckTime = timeInfo.timeDisplay;
+                }
+                return { ...s, selectedRoute: route, status: nextStatus, checkTime: nextCheckTime };
+            }
+            return s;
+        });
+        updateStudentsState(updated);
+        showToast("登校ルートを切り替え、判定を再評価しました。", "success");
+    };
+
     // Redirect Links
-    const openYahooTransit = () => {
-        const activeSchoolStation = formSchoolStation || globalStationA;
+    const openYahooTransit = (routeType) => {
+        const activeSchoolStation = routeType === 'B' ? globalStationB : globalStationA;
         if (!formStation.trim() || !activeSchoolStation.trim()) {
             showToast('最寄り駅を設定してください。', 'warning');
             return;
         }
-        const activeWalkTime = activeSchoolStation === globalStationB ? globalWalkTimeB : globalWalkTimeA;
+        const activeWalkTime = routeType === 'B' ? globalWalkTimeB : globalWalkTimeA;
         const [hours, minutes] = globalClassTime.split(':').map(Number);
         let totalMinutes = hours * 60 + minutes - activeWalkTime;
         if (totalMinutes < 0) totalMinutes += 24 * 60;
@@ -615,8 +695,8 @@ export default function Dashboard() {
         window.open(url, '_blank');
     };
 
-    const openGoogleMaps = () => {
-        const activeSchoolStation = formSchoolStation || globalStationA;
+    const openGoogleMaps = (routeType) => {
+        const activeSchoolStation = routeType === 'B' ? globalStationB : globalStationA;
         if (!formStation.trim() || !activeSchoolStation.trim()) {
             showToast('最寄り駅を設定してください。', 'warning');
             return;
@@ -646,7 +726,8 @@ export default function Dashboard() {
             const newUrl = URL.createObjectURL(imgBlob);
             setSessionPhotoUrls(prev => ({ ...prev, [studentId]: newUrl }));
 
-            const timeInfo = getCaptureTimeInfo(verif.timestamp, student.targetTime);
+            const targetTime = student.selectedRoute === 'B' ? student.targetTimeB : student.targetTimeA;
+            const timeInfo = getCaptureTimeInfo(verif.timestamp, targetTime);
             
             // Check date
             const date = new Date(verif.timestamp);
@@ -786,14 +867,14 @@ export default function Dashboard() {
         const newUrl = URL.createObjectURL(imgBlob);
         setSessionPhotoUrls(prev => ({ ...prev, [student.id]: newUrl }));
 
-        const timeInfo = getCaptureTimeInfo(verif.timestamp, student.targetTime);
+        const targetTime = student.selectedRoute === 'B' ? student.targetTimeB : student.targetTimeA;
+        const timeInfo = getCaptureTimeInfo(verif.timestamp, targetTime);
         const date = new Date(verif.timestamp);
         const today = new Date();
         const isToday = today.getFullYear() === date.getFullYear() &&
                         today.getMonth() === date.getMonth() &&
                         today.getDate() === date.getDate();
 
-        // Check public key matching
         let isKeyMatch = true;
         let keyUpdated = false;
         let registeredKey = student.publicKey;
@@ -928,28 +1009,52 @@ export default function Dashboard() {
                                     <label>自宅の最寄り駅</label>
                                     <input type="text" className="form-control" placeholder="例: 新宿駅" required value={formStation} onChange={(e) => setFormStation(e.target.value)} />
                                 </div>
-                                <div className="form-group">
-                                    <label>学校側の到着駅</label>
-                                    <select className="form-control" value={formSchoolStation} onChange={(e) => setFormSchoolStation(e.target.value)}>
-                                        <option value="">{`最寄り駅 A (${globalStationA})`}</option>
-                                        <option value={globalStationB}>{`最寄り駅 B (${globalStationB})`}</option>
-                                    </select>
-                                </div>
-                                <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-                                    <label>乗車時間（分）</label>
-                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                        <input type="number" className="form-control" style={{ maxWidth: '90px' }} placeholder="分" required min="0" value={formTransitTime} onChange={(e) => setFormTransitTime(e.target.value)} />
-                                        <div style={{ display: 'flex', gap: '0.35rem', width: '100%' }}>
-                                            <button type="button" className="btn btn-secondary" style={{ padding: '0.5rem', fontSize: '0.75rem', flex: 1 }} onClick={openYahooTransit}>Yahoo!路線</button>
-                                            <button type="button" className="btn btn-secondary" style={{ padding: '0.5rem', fontSize: '0.75rem', flex: 1 }} onClick={openGoogleMaps}>Gマップ</button>
+                                <div style={{ borderTop: '1px solid #f1f5f9', margin: '0.75rem 0', paddingTop: '0.75rem' }}></div>
+                                
+                                {/* Route A settings */}
+                                <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '0.75rem' }}>
+                                    <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-color)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6' }}></span>
+                                        {`駅Aルート (${globalStationA})`}
+                                    </h4>
+                                    <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                                        <label>乗車時間（分）</label>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <input type="number" className="form-control" style={{ maxWidth: '80px' }} placeholder="分" required min="0" value={formTransitTimeA} onChange={(e) => setFormTransitTimeA(e.target.value)} />
+                                            <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
+                                                <button type="button" className="btn btn-secondary" style={{ padding: '0.4rem 0.5rem', fontSize: '0.7rem', flex: 1 }} onClick={() => openYahooTransit('A')}>Yahoo!路線</button>
+                                                <button type="button" className="btn btn-secondary" style={{ padding: '0.4rem 0.5rem', fontSize: '0.7rem', flex: 1 }} onClick={() => openGoogleMaps('A')}>Gマップ</button>
+                                            </div>
                                         </div>
+                                        {calcLookupNoteA && <span style={{ fontSize: '0.65rem', fontWeight: 500, marginTop: '0.15rem', display: 'block', color: 'var(--success-color)' }}>{calcLookupNoteA}</span>}
                                     </div>
-                                    {calcLookupNote && <span style={{ fontSize: '0.7rem', fontWeight: 500, marginTop: '0.15rem', display: 'block', color: 'var(--success-color)' }}>{calcLookupNote}</span>}
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label>到着目標時間 (自動算出)</label>
+                                        <input type="time" className="form-control" required value={formTargetTimeA} onChange={(e) => setFormTargetTimeA(e.target.value)} />
+                                    </div>
                                 </div>
-                                <div className="form-group">
-                                    <label>最寄り駅到着目標時間</label>
-                                    <input type="time" className="form-control" required value={formTargetTime} onChange={(e) => setFormTargetTime(e.target.value)} />
-                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.15rem', display: 'block', lineHeight: 1.35 }}>※乗車時間・徒歩時間から自動算出されます（直接の上書き調整も可）。</span>
+
+                                {/* Route B settings */}
+                                <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '0.75rem' }}>
+                                    <h4 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-color)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></span>
+                                        {`駅Bルート (${globalStationB})`}
+                                    </h4>
+                                    <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                                        <label>乗車時間（分）</label>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <input type="number" className="form-control" style={{ maxWidth: '80px' }} placeholder="分" required min="0" value={formTransitTimeB} onChange={(e) => setFormTransitTimeB(e.target.value)} />
+                                            <div style={{ display: 'flex', gap: '0.25rem', width: '100%' }}>
+                                                <button type="button" className="btn btn-secondary" style={{ padding: '0.4rem 0.5rem', fontSize: '0.7rem', flex: 1 }} onClick={() => openYahooTransit('B')}>Yahoo!路線</button>
+                                                <button type="button" className="btn btn-secondary" style={{ padding: '0.4rem 0.5rem', fontSize: '0.7rem', flex: 1 }} onClick={() => openGoogleMaps('B')}>Gマップ</button>
+                                            </div>
+                                        </div>
+                                        {calcLookupNoteB && <span style={{ fontSize: '0.65rem', fontWeight: 500, marginTop: '0.15rem', display: 'block', color: 'var(--success-color)' }}>{calcLookupNoteB}</span>}
+                                    </div>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label>到着目標時間 (自動算出)</label>
+                                        <input type="time" className="form-control" required value={formTargetTimeB} onChange={(e) => setFormTargetTimeB(e.target.value)} />
+                                    </div>
                                 </div>
                                 <div className="form-group">
                                     <label>登録端末公開鍵 (Hex) [任意]</label>
@@ -1065,7 +1170,7 @@ export default function Dashboard() {
                                                                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                                                                     <span className="station-badge" title="登校ルート">
                                                                         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                                                                        {student.station} ➔ {student.schoolStation || globalStationA}
+                                                                        {student.station} ➔ {student.selectedRoute === 'B' ? globalStationB : globalStationA}
                                                                     </span>
                                                                     {student.publicKey ? (
                                                                         <span className="key-badge" title={student.publicKey} style={{ fontSize: '0.65rem', color: '#10b981', backgroundColor: '#ecfdf5', padding: '0.1rem 0.35rem', borderRadius: '4px', border: '1px solid #a7f3d0', fontWeight: 500 }}>
@@ -1081,7 +1186,49 @@ export default function Dashboard() {
                                                         </div>
                                                     </td>
                                                     <td>
-                                                        <span className="time-badge">{student.targetTime}</span>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'center' }}>
+                                                            <div style={{ display: 'flex', gap: '0.2rem' }}>
+                                                                <button 
+                                                                    type="button"
+                                                                    className={`btn-route-toggle ${student.selectedRoute === 'A' ? 'active-a' : ''}`}
+                                                                    onClick={() => handleToggleRoute(student.id, 'A')}
+                                                                    style={{ 
+                                                                        fontSize: '0.65rem', 
+                                                                        padding: '0.1rem 0.3rem', 
+                                                                        borderRadius: '3px', 
+                                                                        cursor: 'pointer', 
+                                                                        border: '1px solid #d1d5db', 
+                                                                        backgroundColor: student.selectedRoute === 'A' ? '#3b82f6' : '#fff', 
+                                                                        color: student.selectedRoute === 'A' ? '#fff' : '#4b5563',
+                                                                        fontWeight: 600,
+                                                                        lineHeight: 1
+                                                                    }}
+                                                                >
+                                                                    A
+                                                                </button>
+                                                                <button 
+                                                                    type="button"
+                                                                    className={`btn-route-toggle ${student.selectedRoute === 'B' ? 'active-b' : ''}`}
+                                                                    onClick={() => handleToggleRoute(student.id, 'B')}
+                                                                    style={{ 
+                                                                        fontSize: '0.65rem', 
+                                                                        padding: '0.1rem 0.3rem', 
+                                                                        borderRadius: '3px', 
+                                                                        cursor: 'pointer', 
+                                                                        border: '1px solid #d1d5db', 
+                                                                        backgroundColor: student.selectedRoute === 'B' ? '#10b981' : '#fff', 
+                                                                        color: student.selectedRoute === 'B' ? '#fff' : '#4b5563',
+                                                                        fontWeight: 600,
+                                                                        lineHeight: 1
+                                                                    }}
+                                                                >
+                                                                    B
+                                                                </button>
+                                                            </div>
+                                                            <span className="time-badge" style={{ margin: 0 }}>
+                                                                {student.selectedRoute === 'B' ? student.targetTimeB : student.targetTimeA}
+                                                            </span>
+                                                        </div>
                                                     </td>
                                                     <td>
                                                         <div>
@@ -1225,9 +1372,15 @@ export default function Dashboard() {
                                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
                                             <select className="form-control" style={{ background: 'rgba(255, 255, 255, 0.8)', maxWidth: '250px' }} value={assignStudentId} onChange={(e) => setAssignStudentId(e.target.value)}>
                                                 <option value="" disabled>選択してください...</option>
-                                                {students.map(s => (
-                                                    <option key={s.id} value={s.id}>{s.name} (最寄り: {s.station}, 目標: {s.targetTime})</option>
-                                                ))}
+                                                {students.map(s => {
+                                                    const targetTime = s.selectedRoute === 'B' ? s.targetTimeB : s.targetTimeA;
+                                                    const routeName = s.selectedRoute === 'B' ? '駅B' : '駅A';
+                                                    return (
+                                                        <option key={s.id} value={s.id}>
+                                                            {s.name} (自宅: {s.station}, 目標: {targetTime} [{routeName}])
+                                                        </option>
+                                                    );
+                                                })}
                                             </select>
                                             <button className="btn btn-primary" style={{ maxWidth: '130px', padding: '0.65rem 1rem' }} onClick={handleAssignDetailedPhoto}>登校判定を反映</button>
                                         </div>
