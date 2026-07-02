@@ -753,8 +753,8 @@ export default function Dashboard() {
                                                             <div className="avatar" style={{ backgroundColor: getAvatarColor(student.name) }}>
                                                                 {student.name.trim().charAt(0)}
                                                             </div>
-                                                            <div className="name-info">
-                                                                <span className="student-name">{student.name}</span>
+                                                            <div className="name-info" onClick={() => setSelectedStudentModal(student)} style={{ cursor: 'pointer' }} title="詳細・鍵管理を開く">
+                                                                <span className="student-name" style={{ fontWeight: 600 }}>{student.name}</span>
                                                                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
                                                                     <span className="station-badge">
                                                                         <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
