@@ -71,16 +71,27 @@ export async function verifySpotLockPhoto(file) {
     }
     timestamp = Number(timestamp); 
 
-    const embeddedSigBytes = data.slice(app15Offset + 21, app15Offset + 85);
+    let pubKeyHex = "";
+    let embeddedSigBytes;
+
+    if (version === 1) {
+        embeddedSigBytes = data.slice(app15Offset + 21, app15Offset + 85);
+        pubKeyHex = PUBLIC_KEYS[version];
+        if (!pubKeyHex) {
+            throw new Error(`バージョン v${version} の公開鍵がウェブサイトに登録されていません。`);
+        }
+    } else if (version === 2) {
+        const pubKeyLen = (data[app15Offset + 21] << 8) | data[app15Offset + 22];
+        const pubKeyBytes = data.slice(app15Offset + 23, app15Offset + 23 + pubKeyLen);
+        pubKeyHex = toHexString(pubKeyBytes);
+        embeddedSigBytes = data.slice(app15Offset + 23 + pubKeyLen, app15Offset + 23 + pubKeyLen + 64);
+    } else {
+        throw new Error(`未対応のメタデータバージョン: v${version}`);
+    }
 
     const originalBytes = new Uint8Array(data.length - (2 + segmentLen));
     originalBytes.set(data.subarray(0, app15Offset), 0);
     originalBytes.set(data.subarray(app15Offset + 2 + segmentLen), app15Offset);
-
-    const pubKeyHex = PUBLIC_KEYS[version];
-    if (!pubKeyHex) {
-        throw new Error(`バージョン v${version} の公開鍵がウェブサイトに登録されていません。`);
-    }
 
     const timestampStrBytes = new TextEncoder().encode(timestamp.toString());
     const combined = new Uint8Array(timestampStrBytes.length + originalBytes.length);
@@ -126,7 +137,8 @@ export async function verifySpotLockPhoto(file) {
         embeddedSigBytes,
         originalBytes,
         isValid,
-        cryptoSupported
+        cryptoSupported,
+        publicKeyHex: pubKeyHex
     };
 }
 

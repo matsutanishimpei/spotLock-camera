@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.spotlockcamera.core.image.TimestampOverlayProcessor
 import com.example.spotlockcamera.core.crypto.SpotLockImageSigner
-import com.example.spotlockcamera.core.crypto.BuildConfigPrivateKeyProvider
+import com.example.spotlockcamera.core.crypto.KeystoreKeyProvider
 import com.example.spotlockcamera.core.storage.MediaStoreImageStorage
 import com.example.spotlockcamera.domain.usecase.CaptureAndSignUseCase
 
@@ -15,7 +15,7 @@ class CameraViewModelFactory(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CameraViewModel::class.java)) {
-            val keyProvider = BuildConfigPrivateKeyProvider()
+            val keyProvider = KeystoreKeyProvider()
             val signer = SpotLockImageSigner(keyProvider)
             val processor = TimestampOverlayProcessor()
             val storage = MediaStoreImageStorage(context.applicationContext)

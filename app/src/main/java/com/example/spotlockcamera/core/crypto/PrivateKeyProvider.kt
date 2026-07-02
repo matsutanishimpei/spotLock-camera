@@ -9,4 +9,11 @@ interface PrivateKeyProvider {
      * @return The EC PrivateKey instance.
      */
     fun getPrivateKey(): PrivateKey
+
+    /**
+     * Retrieves the public key encoded bytes in X.509 SPKI format.
+     *
+     * @return The byte array of the public key.
+     */
+    fun getPublicKeyBytes(): ByteArray
 }

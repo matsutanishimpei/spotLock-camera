@@ -10,19 +10,20 @@ import java.security.PrivateKey
 
 class SpotLockImageSignerTest {
 
-    // Helper to generate a valid EC P-256 Private Key dynamically for testing
-    private fun generateTestPrivateKey(): PrivateKey {
+    // Helper to generate a valid EC P-256 KeyPair dynamically for testing
+    private fun generateTestKeyPair(): java.security.KeyPair {
         val keyPairGenerator = KeyPairGenerator.getInstance("EC")
         keyPairGenerator.initialize(256)
-        return keyPairGenerator.generateKeyPair().private
+        return keyPairGenerator.generateKeyPair()
     }
 
     @Test
     fun signAndEmbed_validKey_correctlyConstructsApp15MetadataSegment() {
         // Given
-        val testPrivateKey = generateTestPrivateKey()
+        val testKeyPair = generateTestKeyPair()
         val keyProvider = object : PrivateKeyProvider {
-            override fun getPrivateKey(): PrivateKey = testPrivateKey
+            override fun getPrivateKey(): PrivateKey = testKeyPair.private
+            override fun getPublicKeyBytes(): ByteArray = testKeyPair.public.encoded
         }
         val signer = SpotLockImageSigner(keyProvider)
         
@@ -35,27 +36,28 @@ class SpotLockImageSignerTest {
 
         // Then
         assertNotNull(result)
-        // APP15 size segment: [8 bytes MAGIC] + [1 byte ver] + [8 bytes timestamp] + [64 bytes sig] = 81 bytes
+        // APP15 size payload:
+        // [8 Magic] + [1 Ver] + [8 Timestamp] + [2 KeyLen] + [91 PubKey] + [64 Sig] = 174 bytes
         // Header size: 4 bytes (FF EF + 2 bytes length)
-        // Result size should be: original size (6) + segment size (81) + header size (4) = 91 bytes
-        assertEquals(91, result.size)
+        // Result size: original (6) + segment size (174) + header (4) = 184 bytes
+        assertEquals(184, result.size)
 
         // Verify insertion location: should insert after the SOI (offset 2)
         // Check APP15 Marker (FF EF) is inserted at offset 2
         assertEquals(0xFF.toByte(), result[2])
         assertEquals(0xEF.toByte(), result[3])
 
-        // Verify segment length field (83 bytes = 81 payload + 2 length field itself)
-        // 83 is 0x0053
+        // Verify segment length field (176 bytes = 174 payload + 2 length field itself)
+        // 176 is 0x00B0
         assertEquals(0x00.toByte(), result[4])
-        assertEquals(0x53.toByte(), result[5])
+        assertEquals(0xB0.toByte(), result[5])
 
         // Verify MAGIC "SPOTLOCK" (offsets 6 to 13)
         val magicBytes = result.sliceArray(6..13)
         assertEquals("SPOTLOCK", String(magicBytes, Charsets.US_ASCII))
 
         // Verify Version byte (offset 14)
-        assertEquals(0x01.toByte(), result[14])
+        assertEquals(0x02.toByte(), result[14])
 
         // Verify Timestamp (8 bytes, offsets 15 to 22)
         var parsedTimestamp = 0L
@@ -64,15 +66,23 @@ class SpotLockImageSignerTest {
         }
         assertEquals(timestamp, parsedTimestamp)
 
-        // Verify Signature portion exists (64 bytes, offsets 23 to 86)
-        val signaturePortion = result.sliceArray(23..86)
+        // Verify Public Key Length (2 bytes, offsets 23 to 24)
+        val parsedKeyLen = ((result[23].toInt() and 0xFF) shl 8) or (result[24].toInt() and 0xFF)
+        assertEquals(91, parsedKeyLen)
+
+        // Verify Public Key bytes (offsets 25 to 115)
+        val parsedPubKey = result.sliceArray(25..115)
+        assertTrue(keyProvider.getPublicKeyBytes().contentEquals(parsedPubKey))
+
+        // Verify Signature portion exists (64 bytes, offsets 116 to 179)
+        val signaturePortion = result.sliceArray(116..179)
         assertEquals(64, signaturePortion.size)
 
-        // Verify remaining original bytes are appended back correctly (offsets 87 to 90)
-        assertEquals(0x11.toByte(), result[87])
-        assertEquals(0x22.toByte(), result[88])
-        assertEquals(0x33.toByte(), result[89])
-        assertEquals(0x44.toByte(), result[90])
+        // Verify remaining original bytes are appended back correctly (offsets 180 to 183)
+        assertEquals(0x11.toByte(), result[180])
+        assertEquals(0x22.toByte(), result[181])
+        assertEquals(0x33.toByte(), result[182])
+        assertEquals(0x44.toByte(), result[183])
     }
 
     @Test
@@ -81,6 +91,9 @@ class SpotLockImageSignerTest {
         val failingProvider = object : PrivateKeyProvider {
             override fun getPrivateKey(): PrivateKey {
                 throw RuntimeException("KeyStore corrupted")
+            }
+            override fun getPublicKeyBytes(): ByteArray {
+                return byteArrayOf()
             }
         }
         val signer = SpotLockImageSigner(failingProvider)
@@ -99,12 +112,11 @@ class SpotLockImageSignerTest {
 
     @Test
     fun generateIntegrationTestArtifacts() {
-        val keyPairGenerator = KeyPairGenerator.getInstance("EC")
-        keyPairGenerator.initialize(256)
-        val keyPair = keyPairGenerator.generateKeyPair()
+        val keyPair = generateTestKeyPair()
         
         val keyProvider = object : PrivateKeyProvider {
             override fun getPrivateKey(): PrivateKey = keyPair.private
+            override fun getPublicKeyBytes(): ByteArray = keyPair.public.encoded
         }
         val signer = SpotLockImageSigner(keyProvider)
         

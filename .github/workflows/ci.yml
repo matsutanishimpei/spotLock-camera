@@ -29,8 +29,6 @@ jobs:
       - name: Create local.properties
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "spotlock.privateKey=" >> local.properties
-          echo "spotlock.keyVersion=1" >> local.properties
 
       - name: Run unit tests
         run: |

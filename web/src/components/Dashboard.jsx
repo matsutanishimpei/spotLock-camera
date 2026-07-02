@@ -16,6 +16,7 @@ export default function Dashboard() {
     const [formStation, setFormStation] = useState('');
     const [formTransitTime, setFormTransitTime] = useState('');
     const [formTargetTime, setFormTargetTime] = useState('');
+    const [formPublicKey, setFormPublicKey] = useState('');
     const [lastLookup, setLastLookup] = useState({ from: '', to: '' });
     const [calcLookupNote, setCalcLookupNote] = useState('');
 
@@ -210,7 +211,7 @@ export default function Dashboard() {
                         nextStatus = timeInfo.onTime ? 'ontime' : 'late';
                         nextCheckTime = timeInfo.timeDisplay;
                     }
-                    return { ...s, name: formName, station: formStation, targetTime: formTargetTime, status: nextStatus, checkTime: nextCheckTime };
+                    return { ...s, name: formName, station: formStation, targetTime: formTargetTime, status: nextStatus, checkTime: nextCheckTime, publicKey: formPublicKey.trim() || null };
                 }
                 return s;
             });
@@ -227,7 +228,8 @@ export default function Dashboard() {
                 status: 'unverified',
                 checkTime: null,
                 checkTimeRaw: null,
-                signatureValid: null
+                signatureValid: null,
+                publicKey: formPublicKey.trim() || null
             };
             updateStudentsState([...students, newStudent]);
             showToast(`${formName} さんを新規追加しました。`, 'success');
@@ -240,6 +242,7 @@ export default function Dashboard() {
         setFormName(student.name);
         setFormStation(student.station);
         setFormTargetTime(student.targetTime);
+        setFormPublicKey(student.publicKey || '');
 
         // Reverse transit calculation
         const [classHours, classMins] = globalClassTime.split(':').map(Number);
@@ -262,6 +265,7 @@ export default function Dashboard() {
         setFormStation('');
         setFormTransitTime('');
         setFormTargetTime('');
+        setFormPublicKey('');
         setCalcLookupNote('');
     };
 
@@ -399,6 +403,25 @@ export default function Dashboard() {
                             today.getMonth() === date.getMonth() &&
                             today.getDate() === date.getDate();
 
+            // Check public key matching
+            let isKeyMatch = true;
+            let keyUpdated = false;
+            let registeredKey = student.publicKey;
+
+            if (verif.cryptoSupported && verif.isValid) {
+                if (!student.publicKey) {
+                    const approve = confirm(`新規端末を検出しました。この端末の公開鍵を ${student.name} さんに紐づけますか？\n\n公開鍵: ${verif.publicKeyHex.substring(0, 16)}...\n（以降は、この端末で撮影された写真のみ有効となります）`);
+                    if (!approve) {
+                        showToast('公開鍵の紐づけがキャンセルされました。', 'info');
+                        return;
+                    }
+                    registeredKey = verif.publicKeyHex;
+                    keyUpdated = true;
+                } else if (student.publicKey !== verif.publicKeyHex) {
+                    isKeyMatch = false;
+                }
+            }
+
             const updated = [...students];
             if (!isToday) {
                 updated[studentIndex] = {
@@ -406,10 +429,11 @@ export default function Dashboard() {
                     status: 'wrong_date',
                     checkTime: timeInfo.timeDisplay,
                     checkTimeRaw: verif.timestamp,
-                    signatureValid: verif.cryptoSupported ? verif.isValid : null
+                    signatureValid: verif.cryptoSupported ? (verif.isValid && isKeyMatch) : null,
+                    publicKey: registeredKey
                 };
                 showToast(`警告: ${student.name} さんは本日の写真ではありません（日付違い）`, 'warning');
-            } else if (verif.cryptoSupported && !verif.isValid) {
+            } else if (verif.cryptoSupported && (!verif.isValid || !isKeyMatch)) {
                 updated[studentIndex] = {
                     ...student,
                     status: 'invalid_sig',
@@ -417,20 +441,29 @@ export default function Dashboard() {
                     checkTimeRaw: verif.timestamp,
                     signatureValid: false
                 };
-                showToast(`警告: ${student.name} さんの署名データが一致しません！写真が改ざんされた可能性があります。`, 'warning');
+                if (!verif.isValid) {
+                    showToast(`警告: ${student.name} さんの署名データが一致しません！写真が改ざんされた可能性があります。`, 'warning');
+                } else {
+                    showToast(`警告: ${student.name} さんの提出写真の署名端末が、登録済みの端末と異なります！`, 'error');
+                }
             } else {
                 updated[studentIndex] = {
                     ...student,
                     status: timeInfo.onTime ? 'ontime' : 'late',
                     checkTime: timeInfo.timeDisplay,
                     checkTimeRaw: verif.timestamp,
-                    signatureValid: true
+                    signatureValid: true,
+                    publicKey: registeredKey
                 };
 
-                if (!verif.cryptoSupported) {
-                    showToast(`${student.name} さんの写真タイムスタンプを解析（署名はローカル制限によりスキップ）。結果: ${timeInfo.onTime ? '間に合いました' : '遅刻です'}`, 'warning');
+                if (keyUpdated) {
+                    showToast(`${student.name} さんの端末公開鍵を初回登録しました！`, 'success');
                 } else {
-                    showToast(`${student.name} さんの写真を検証完了！ 結果: ${timeInfo.onTime ? '時間内登校（クリア）' : '遅刻検知'}`, timeInfo.onTime ? 'success' : 'error');
+                    if (!verif.cryptoSupported) {
+                        showToast(`${student.name} さんの写真タイムスタンプを解析（署名はローカル制限によりスキップ）。結果: ${timeInfo.onTime ? '間に合いました' : '遅刻です'}`, 'warning');
+                    } else {
+                        showToast(`${student.name} さんの写真を検証完了！ 結果: ${timeInfo.onTime ? '時間内登校（クリア）' : '遅刻検知'}`, timeInfo.onTime ? 'success' : 'error');
+                    }
                 }
             }
             updateStudentsState(updated);
@@ -508,22 +541,64 @@ export default function Dashboard() {
                         today.getMonth() === date.getMonth() &&
                         today.getDate() === date.getDate();
 
+        // Check public key matching
+        let isKeyMatch = true;
+        let keyUpdated = false;
+        let registeredKey = student.publicKey;
+
+        if (verif.cryptoSupported && verif.isValid) {
+            if (!student.publicKey) {
+                const approve = confirm(`新規端末を検出しました。この端末の公開鍵を ${student.name} さんに紐づけますか？\n\n公開鍵: ${verif.publicKeyHex.substring(0, 16)}...\n（以降は、この端末で撮影された写真のみ有効となります）`);
+                if (!approve) {
+                    showToast('公開鍵の紐づけがキャンセルされました。', 'info');
+                    return;
+                }
+                registeredKey = verif.publicKeyHex;
+                keyUpdated = true;
+            } else if (student.publicKey !== verif.publicKeyHex) {
+                isKeyMatch = false;
+            }
+        }
+
         const updated = [...students];
         if (!isToday) {
             updated[studentIndex] = {
-                ...student, status: 'wrong_date', checkTime: timeInfo.timeDisplay, checkTimeRaw: verif.timestamp, signatureValid: verif.cryptoSupported ? verif.isValid : null
+                ...student,
+                status: 'wrong_date',
+                checkTime: timeInfo.timeDisplay,
+                checkTimeRaw: verif.timestamp,
+                signatureValid: verif.cryptoSupported ? (verif.isValid && isKeyMatch) : null,
+                publicKey: registeredKey
             };
             showToast(`警告: ${student.name} さんは本日の写真ではありません（日付違い）`, 'warning');
-        } else if (verif.cryptoSupported && !verif.isValid) {
+        } else if (verif.cryptoSupported && (!verif.isValid || !isKeyMatch)) {
             updated[studentIndex] = {
-                ...student, status: 'invalid_sig', checkTime: timeInfo.timeDisplay, checkTimeRaw: verif.timestamp, signatureValid: false
+                ...student,
+                status: 'invalid_sig',
+                checkTime: timeInfo.timeDisplay,
+                checkTimeRaw: verif.timestamp,
+                signatureValid: false
             };
-            showToast(`警告: ${student.name} さんの署名データが一致しません！改ざん警告を記録しました。`, 'warning');
+            if (!verif.isValid) {
+                showToast(`警告: ${student.name} さんの署名データが一致しません！`, 'warning');
+            } else {
+                showToast(`警告: ${student.name} さんの提出写真の署名端末が、登録済みの端末と異なります！`, 'error');
+            }
         } else {
             updated[studentIndex] = {
-                ...student, status: timeInfo.onTime ? 'ontime' : 'late', checkTime: timeInfo.timeDisplay, checkTimeRaw: verif.timestamp, signatureValid: true
+                ...student,
+                status: timeInfo.onTime ? 'ontime' : 'late',
+                checkTime: timeInfo.timeDisplay,
+                checkTimeRaw: verif.timestamp,
+                signatureValid: true,
+                publicKey: registeredKey
             };
-            showToast(`${student.name} さんの写真を登校判定に反映しました！`, 'success');
+
+            if (keyUpdated) {
+                showToast(`${student.name} さんの端末公開鍵を初回登録しました！`, 'success');
+            } else {
+                showToast(`${student.name} さんの写真を登校判定に反映しました！`, 'success');
+            }
         }
 
         updateStudentsState(updated);
@@ -604,6 +679,10 @@ export default function Dashboard() {
                                     <input type="time" className="form-control" required value={formTargetTime} onChange={(e) => setFormTargetTime(e.target.value)} />
                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.15rem', display: 'block', lineHeight: 1.35 }}>※乗車時間・徒歩時間から自動算出されます（直接の上書き調整も可）。</span>
                                 </div>
+                                <div className="form-group">
+                                    <label>登録端末公開鍵 (Hex) [任意]</label>
+                                    <input type="text" className="form-control" placeholder="空欄の場合、初回写真アップ時に自動登録されます" value={formPublicKey} onChange={(e) => setFormPublicKey(e.target.value)} />
+                                </div>
                                 <div className="btn-group">
                                     <button type="submit" className="btn btn-primary">{formId ? '更新する' : '追加する'}</button>
                                     {formId && <button type="button" className="btn btn-secondary" onClick={handleCancelEdit}>キャンセル</button>}
@@ -676,10 +755,21 @@ export default function Dashboard() {
                                                             </div>
                                                             <div className="name-info">
                                                                 <span className="student-name">{student.name}</span>
-                                                                <span className="station-badge">
-                                                                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                                                                    {student.station}
-                                                                </span>
+                                                                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                                                                    <span className="station-badge">
+                                                                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                                                        {student.station}
+                                                                    </span>
+                                                                    {student.publicKey ? (
+                                                                        <span className="key-badge" title={student.publicKey} style={{ fontSize: '0.65rem', color: '#10b981', backgroundColor: '#ecfdf5', padding: '0.1rem 0.35rem', borderRadius: '4px', border: '1px solid #a7f3d0', fontWeight: 500 }}>
+                                                                            🔑 {student.publicKey.substring(0, 6)}...
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="key-badge-empty" style={{ fontSize: '0.65rem', color: '#6b7280', backgroundColor: '#f3f4f6', padding: '0.1rem 0.35rem', borderRadius: '4px', border: '1px solid #e5e7eb', fontWeight: 500 }}>
+                                                                            🔑 未登録 (自動登録)
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </td>
@@ -971,6 +1061,40 @@ export default function Dashboard() {
                                         <span style={{ color: 'var(--text-muted)' }}>目標到着時刻:</span>
                                         <span>{selectedStudentModal.targetTime} まで</span>
                                     </div>
+                                </div>
+
+                                <div className="detail-item" style={{ fontSize: '0.8rem', opacity: 0.9 }}>
+                                    <div className="detail-label">登録端末公開鍵</div>
+                                    {selectedStudentModal.publicKey ? (
+                                        <div style={{ marginTop: '0.25rem' }}>
+                                            <div style={{ fontSize: '0.7rem', wordBreak: 'break-all', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.5rem', borderRadius: '4px', fontFamily: 'monospace' }}>
+                                                {selectedStudentModal.publicKey}
+                                            </div>
+                                            <button 
+                                                className="btn btn-danger-outline" 
+                                                style={{ marginTop: '0.5rem', padding: '0.25rem 0.5rem', fontSize: '0.7rem', display: 'block', width: 'auto' }} 
+                                                onClick={() => {
+                                                    if (confirm(`${selectedStudentModal.name} さんの登録端末鍵を消去しますか？（次回の写真アップロード時に自動で新規登録されます）`)) {
+                                                        const updated = students.map(s => {
+                                                            if (s.id === selectedStudentModal.id) {
+                                                                return { ...s, publicKey: null };
+                                                            }
+                                                            return s;
+                                                        });
+                                                        updateStudentsState(updated);
+                                                        setSelectedStudentModal(prev => ({ ...prev, publicKey: null }));
+                                                        showToast(`${selectedStudentModal.name} さんの登録端末鍵を消去しました。`, 'info');
+                                                    }
+                                                }}
+                                            >
+                                                登録鍵を消去 (再登録を許可)
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '0.25rem' }}>
+                                            未登録（写真アップロード時に自動登録されます）
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

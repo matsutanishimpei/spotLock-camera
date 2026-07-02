@@ -1,6 +1,5 @@
 package com.example.spotlockcamera.core.crypto
 
-import com.example.spotlockcamera.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.security.Signature
 
@@ -13,6 +12,8 @@ class SpotLockImageSigner(private val keyProvider: PrivateKeyProvider) : ImageSi
         } catch (e: Exception) {
             throw IllegalArgumentException("署名用の秘密鍵のインポートに失敗しました。鍵が設定されていないか、形式が不正です。", e)
         }
+
+        val publicKeyBytes = keyProvider.getPublicKeyBytes()
 
         val timestampStr = timestamp.toString()
         val signer = Signature.getInstance("SHA256withECDSA")
@@ -27,12 +28,17 @@ class SpotLockImageSigner(private val keyProvider: PrivateKeyProvider) : ImageSi
         
         // 8 bytes Magic
         payloadStream.write("SPOTLOCK".toByteArray(Charsets.US_ASCII))
-        // 1 byte Version
-        payloadStream.write(BuildConfig.SPOTLOCK_KEY_VERSION)
+        // 1 byte Version (use 0x02 for the new version)
+        payloadStream.write(0x02)
         // 8 bytes Timestamp (Long, Big Endian)
         for (i in 7 downTo 0) {
             payloadStream.write(((timestamp shr (i * 8)) and 0xFF).toInt())
         }
+        // 2 bytes Public Key Length (Big Endian)
+        payloadStream.write((publicKeyBytes.size shr 8) and 0xFF)
+        payloadStream.write(publicKeyBytes.size and 0xFF)
+        // Public Key Bytes
+        payloadStream.write(publicKeyBytes)
         // 64 bytes Signature
         payloadStream.write(signature)
 

@@ -27,10 +27,7 @@ async function run() {
     console.log(`Loaded test image (${imageBytes.length} bytes)`);
     console.log(`Loaded test public key: ${pubKeyHex}`);
 
-    // 1. Inject the test public key into PUBLIC_KEYS mapping (version 1)
-    PUBLIC_KEYS[1] = pubKeyHex;
-
-    // 2. Create the file mock with arrayBuffer method
+    // 1. Create the file mock with arrayBuffer method
     const fileMock = {
         arrayBuffer: async () => {
             // Correctly extract ArrayBuffer from Buffer
@@ -38,16 +35,16 @@ async function run() {
         }
     };
 
-    // 3. Verify
+    // 2. Verify
     try {
         const result = await verifySpotLockPhoto(fileMock);
         console.log("Verification result:", result);
         
-        if (result.isValid && result.cryptoSupported) {
-            console.log("SUCCESS: Signature verification passed successfully!");
+        if (result.isValid && result.cryptoSupported && result.version === 2) {
+            console.log("SUCCESS: Signature verification passed successfully for Version 2!");
             process.exit(0);
         } else {
-            console.error("FAILURE: Signature verification failed.", result);
+            console.error("FAILURE: Signature verification failed or version mismatch.", result);
             process.exit(1);
         }
     } catch (error) {
