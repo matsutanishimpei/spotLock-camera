@@ -1,6 +1,81 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { verifySpotLockPhoto, getRelativeTimeString, toHexString } from '../utils/crypto';
 
+// ----------------------------------------------------
+// IndexedDB Helpers for File System Access API handles
+// ----------------------------------------------------
+function openHandlesDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open("SpotLockHandlesDB", 1);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            db.createObjectStore("handles");
+        };
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+    });
+}
+
+async function saveFileHandle(handle) {
+    try {
+        const db = await openHandlesDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("handles", "readwrite");
+            const store = tx.objectStore("handles");
+            const req = store.put(handle, "students_json");
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    } catch (err) {
+        console.error("Failed to save handle in IndexedDB", err);
+    }
+}
+
+async function getFileHandle() {
+    try {
+        const db = await openHandlesDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("handles", "readonly");
+            const store = tx.objectStore("handles");
+            const req = store.get("students_json");
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    } catch (err) {
+        console.error("Failed to read handle from IndexedDB", err);
+        return null;
+    }
+}
+
+async function clearFileHandle() {
+    try {
+        const db = await openHandlesDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction("handles", "readwrite");
+            const store = tx.objectStore("handles");
+            const req = store.delete("students_json");
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    } catch (err) {
+        console.error("Failed to clear handle from IndexedDB", err);
+    }
+}
+
+async function verifyPermission(fileHandle, readWrite) {
+    const options = {};
+    if (readWrite) {
+        options.mode = 'readwrite';
+    }
+    if ((await fileHandle.queryPermission(options)) === 'granted') {
+        return true;
+    }
+    if ((await fileHandle.requestPermission(options)) === 'granted') {
+        return true;
+    }
+    return false;
+}
+
 export default function Dashboard() {
     // ----------------------------------------------------
     // State Management
@@ -9,6 +84,10 @@ export default function Dashboard() {
     const [globalStation, setGlobalStation] = useState('渋谷駅');
     const [globalClassTime, setGlobalClassTime] = useState('09:00');
     const [globalWalkTime, setGlobalWalkTime] = useState(10);
+
+    // Sync File handle states
+    const [syncFileHandle, setSyncFileHandle] = useState(null);
+    const [syncFileName, setSyncFileName] = useState('');
 
     // Form inputs
     const [formId, setFormId] = useState('');
@@ -53,7 +132,7 @@ export default function Dashboard() {
     };
 
     // ----------------------------------------------------
-    // Life Cycle & LocalStorage
+    // Life Cycle & LocalStorage / File Handle loading
     // ----------------------------------------------------
     useEffect(() => {
         // Load settings
@@ -65,23 +144,47 @@ export default function Dashboard() {
         setGlobalClassTime(time);
         setGlobalWalkTime(Number(walk));
 
-        // Load students
-        const stored = localStorage.getItem('spotlock_students');
-        if (stored) {
+        // Load students (with automatic file restore attempt)
+        async function initData() {
             try {
-                setStudents(JSON.parse(stored));
-            } catch (e) {
-                console.error("Failed to parse students from localStorage", e);
+                const handle = await getFileHandle();
+                if (handle) {
+                    const hasPermission = await verifyPermission(handle, true);
+                    if (hasPermission) {
+                        const file = await handle.getFile();
+                        const text = await file.text();
+                        const data = JSON.parse(text);
+                        setStudents(data);
+                        setSyncFileHandle(handle);
+                        setSyncFileName(handle.name);
+                        showToast(`ファイルから同期しました: ${handle.name}`, 'success');
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to restore file handle or read file", err);
+                showToast("ファイル同期の再開に失敗しました。再設定してください。", "warning");
             }
-        } else {
-            const initialMock = [
-                { id: 'mock-1', name: '佐藤 優太', station: '新宿駅', targetTime: '08:15', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
-                { id: 'mock-2', name: '鈴木 美咲', station: '渋谷駅', targetTime: '08:30', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
-                { id: 'mock-3', name: '高橋 健太', station: '池袋駅', targetTime: '08:00', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null }
-            ];
-            setStudents(initialMock);
-            localStorage.setItem('spotlock_students', JSON.stringify(initialMock));
+
+            // Fallback to localStorage
+            const stored = localStorage.getItem('spotlock_students');
+            if (stored) {
+                try {
+                    setStudents(JSON.parse(stored));
+                } catch (e) {
+                    console.error("Failed to parse students from localStorage", e);
+                }
+            } else {
+                const initialMock = [
+                    { id: 'mock-1', name: '佐藤 優太', station: '新宿駅', targetTime: '08:15', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
+                    { id: 'mock-2', name: '鈴木 美咲', station: '渋谷駅', targetTime: '08:30', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null },
+                    { id: 'mock-3', name: '高橋 健太', station: '池袋駅', targetTime: '08:00', status: 'unverified', checkTime: null, checkTimeRaw: null, signatureValid: null }
+                ];
+                setStudents(initialMock);
+                localStorage.setItem('spotlock_students', JSON.stringify(initialMock));
+            }
         }
+        initData();
 
         // Clean up object URLs on unmount
         return () => {
@@ -89,10 +192,26 @@ export default function Dashboard() {
         };
     }, []);
 
-    // Save students when updated
-    const updateStudentsState = (newStudents) => {
+    // Save students when updated (with automatic file write if synced)
+    const updateStudentsState = async (newStudents) => {
         setStudents(newStudents);
         localStorage.setItem('spotlock_students', JSON.stringify(newStudents));
+
+        if (syncFileHandle) {
+            try {
+                const hasPermission = await verifyPermission(syncFileHandle, true);
+                if (hasPermission) {
+                    const writable = await syncFileHandle.createWritable();
+                    await writable.write(JSON.stringify(newStudents, null, 2));
+                    await writable.close();
+                } else {
+                    showToast("ファイルへの書き込み権限がないため、自動セーブが失敗しました。", "error");
+                }
+            } catch (err) {
+                console.error("Failed to write updated students to file", err);
+                showToast(`ファイルへの書き込みエラー: ${err.message}`, "error");
+            }
+        }
     };
 
     // Recalculate target time when inputs change
@@ -337,6 +456,114 @@ export default function Dashboard() {
             updateStudentsState(mock);
             showToast('デモデータをロードしました。', 'success');
         }
+    };
+
+    // ----------------------------------------------------
+    // JSON Data Sync & Import/Export Actions
+    // ----------------------------------------------------
+    const handleConnectSyncFile = async () => {
+        try {
+            if (!window.showOpenFilePicker) {
+                showToast("お使いのブラウザは File System API に対応していません。インポート/エクスポート機能をご利用ください。", "error");
+                return;
+            }
+
+            const [handle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'JSON Files',
+                    accept: {
+                        'application/json': ['.json']
+                    }
+                }],
+                excludeAcceptAllOption: true,
+                multiple: false
+            });
+
+            const hasPermission = await verifyPermission(handle, true);
+            if (hasPermission) {
+                await saveFileHandle(handle);
+                setSyncFileHandle(handle);
+                setSyncFileName(handle.name);
+
+                // Load initial data from the file
+                const file = await handle.getFile();
+                const text = await file.text();
+                const data = JSON.parse(text);
+                setStudents(data);
+                
+                showToast(`ファイル同期を設定しました: ${handle.name}`, 'success');
+            }
+        } catch (err) {
+            console.error("Failed to connect sync file", err);
+            if (err.name !== 'AbortError') {
+                showToast(`接続エラー: ${err.message}`, 'error');
+            }
+        }
+    };
+
+    const handleDisconnectSync = async () => {
+        if (confirm("ファイルの自動同期設定を解除しますか？（学生データはローカルに残ります）")) {
+            await clearFileHandle();
+            setSyncFileHandle(null);
+            setSyncFileName('');
+            showToast("ファイル同期設定を解除しました。", "info");
+        }
+    };
+
+    const handleSyncFile = async () => {
+        if (!syncFileHandle) return;
+        try {
+            const hasPermission = await verifyPermission(syncFileHandle, true);
+            if (hasPermission) {
+                const file = await syncFileHandle.getFile();
+                const text = await file.text();
+                const data = JSON.parse(text);
+                setStudents(data);
+                showToast(`最新データに再同期しました。`, 'success');
+            }
+        } catch (err) {
+            console.error("Failed to sync file", err);
+            showToast(`再同期エラー: ${err.message}`, 'error');
+        }
+    };
+
+    const handleExportJson = () => {
+        try {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(students, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "students.json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            showToast("JSONファイルをエクスポートしました。", "success");
+        } catch (err) {
+            console.error(err);
+            showToast("エクスポートに失敗しました。", "error");
+        }
+    };
+
+    const handleImportJson = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const parsed = JSON.parse(event.target.result);
+                if (Array.isArray(parsed)) {
+                    updateStudentsState(parsed);
+                    showToast("JSONファイルからデータをインポートしました。", "success");
+                } else {
+                    showToast("不正なデータ形式です。配列形式の JSON である必要があります。", "error");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("JSONの解析に失敗しました。", "error");
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
     };
 
     // Redirect Links
@@ -700,6 +927,41 @@ export default function Dashboard() {
                                 <button className="btn btn-secondary" onClick={handleResetAllStatuses}>本日の登校判定をリセット</button>
                                 <button className="btn btn-secondary" style={{ color: 'var(--accent-primary)', borderColor: 'rgba(37,99,235,0.15)' }} onClick={handleLoadMockStudents}>デモデータをロード</button>
                                 <button className="btn btn-danger-outline" onClick={handleClearAllStudents}>すべての学生を削除</button>
+                            </div>
+                        </div>
+
+                        {/* JSON Data Sync */}
+                        <div className="card">
+                            <h3>
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                                データ同期 (JSON)
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                {syncFileHandle ? (
+                                    <>
+                                        <div style={{ fontSize: '0.75rem', padding: '0.5rem', backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '4px', color: '#065f46', fontWeight: 500 }}>
+                                            🟢 ファイル同期中: <br />
+                                            <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{syncFileName}</span>
+                                        </div>
+                                        <button className="btn btn-secondary" onClick={handleSyncFile}>手動で今すぐ再同期</button>
+                                        <button className="btn btn-danger-outline" onClick={handleDisconnectSync}>同期を解除</button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button className="btn btn-secondary" style={{ color: 'var(--accent-primary)', fontWeight: 600 }} onClick={handleConnectSyncFile}>
+                                            📂 共有JSONファイルを設定
+                                        </button>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.75rem', padding: '0.5rem' }} onClick={handleExportJson}>
+                                                📥 エクスポート
+                                            </button>
+                                            <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.75rem', padding: '0.5rem' }} onClick={() => document.getElementById('json-import-input').click()}>
+                                                📤 インポート
+                                            </button>
+                                        </div>
+                                        <input type="file" id="json-import-input" accept=".json" style={{ display: 'none' }} onChange={handleImportJson} />
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
