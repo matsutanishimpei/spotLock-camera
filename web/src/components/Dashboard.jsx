@@ -76,6 +76,110 @@ async function verifyPermission(fileHandle, readWrite) {
     return false;
 }
 
+// ----------------------------------------------------
+// CSV Serialization / Deserialization Helpers
+// ----------------------------------------------------
+function studentsToCsv(students) {
+    const headers = [
+        "id", "name", "station", "transitTimeA", "transitTimeB", 
+        "targetTimeA", "targetTimeB", "selectedRoute", "status", 
+        "checkTime", "checkTimeRaw", "signatureValid", "publicKey"
+    ];
+    
+    const escapeCsvValue = (val) => {
+        if (val === null || val === undefined) return '';
+        let str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+            str = '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+    };
+
+    const csvRows = [];
+    csvRows.push(headers.join(','));
+
+    for (const student of students) {
+        const values = headers.map(header => escapeCsvValue(student[header]));
+        csvRows.push(values.join(','));
+    }
+
+    // Include UTF-8 BOM
+    return '\uFEFF' + csvRows.join('\r\n');
+}
+
+function csvToStudents(csvText) {
+    if (csvText.startsWith('\uFEFF')) {
+        csvText = csvText.substring(1);
+    }
+
+    const lines = [];
+    let row = [""];
+    let inQuotes = false;
+
+    for (let i = 0; i < csvText.length; i++) {
+        const c = csvText[i];
+        const next = csvText[i + 1];
+        if (c === '"') {
+            if (inQuotes && next === '"') {
+                row[row.length - 1] += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (c === ',' && !inQuotes) {
+            row.push('');
+        } else if ((c === '\r' || c === '\n') && !inQuotes) {
+            if (c === '\r' && next === '\n') {
+                i++;
+            }
+            lines.push(row);
+            row = [""];
+        } else {
+            row[row.length - 1] += c;
+        }
+    }
+    if (row.length > 1 || row[0] !== '') {
+        lines.push(row);
+    }
+
+    if (lines.length < 2) return [];
+
+    const headers = lines[0].map(h => h.trim());
+    const students = [];
+
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.length < headers.length) continue;
+        
+        const student = {};
+        headers.forEach((header, index) => {
+            let val = line[index];
+            if (val === undefined) {
+                student[header] = null;
+                return;
+            }
+            val = val.trim();
+            if (header === 'transitTimeA' || header === 'transitTimeB') {
+                student[header] = val === '' ? 0 : Number(val);
+            } else if (header === 'checkTimeRaw') {
+                student[header] = val === '' ? null : Number(val);
+            } else if (header === 'signatureValid') {
+                student[header] = val === 'true' ? true : (val === 'false' ? false : null);
+            } else if (header === 'publicKey') {
+                student[header] = val === '' ? null : val;
+            } else {
+                student[header] = val;
+            }
+        });
+        
+        if (student.id && student.name) {
+            students.push(student);
+        }
+    }
+
+    return students;
+}
+
 export default function Dashboard() {
     // ----------------------------------------------------
     // State Management
@@ -184,7 +288,7 @@ export default function Dashboard() {
                     if (hasPermission) {
                         const file = await handle.getFile();
                         const text = await file.text();
-                        const data = JSON.parse(text);
+                        const data = csvToStudents(text);
                         const normalized = normalizeLoadedStudents(data, stationA, stationB);
                         setStudents(normalized);
                         setSyncFileHandle(handle);
@@ -225,7 +329,7 @@ export default function Dashboard() {
         };
     }, []);
 
-    // Save students when updated (with automatic file write if synced)
+    // Save students when updated (with automatic CSV file write if synced)
     const updateStudentsState = async (newStudents) => {
         setStudents(newStudents);
         localStorage.setItem('spotlock_students', JSON.stringify(newStudents));
@@ -235,7 +339,8 @@ export default function Dashboard() {
                 const hasPermission = await verifyPermission(syncFileHandle, true);
                 if (hasPermission) {
                     const writable = await syncFileHandle.createWritable();
-                    await writable.write(JSON.stringify(newStudents, null, 2));
+                    const csvContent = studentsToCsv(newStudents);
+                    await writable.write(csvContent);
                     await writable.close();
                 } else {
                     showToast("ファイルへの書き込み権限がないため、自動セーブが失敗しました。", "error");
@@ -537,7 +642,7 @@ export default function Dashboard() {
     };
 
     // ----------------------------------------------------
-    // JSON Data Sync & Import/Export Actions
+    // CSV Data Sync & Import/Export Actions
     // ----------------------------------------------------
     const handleConnectSyncFile = async () => {
         try {
@@ -548,9 +653,9 @@ export default function Dashboard() {
 
             const [handle] = await window.showOpenFilePicker({
                 types: [{
-                    description: 'JSON Files',
+                    description: 'CSV Files',
                     accept: {
-                        'application/json': ['.json']
+                        'text/csv': ['.csv']
                     }
                 }],
                 excludeAcceptAllOption: true,
@@ -566,7 +671,7 @@ export default function Dashboard() {
                 // Load initial data from the file
                 const file = await handle.getFile();
                 const text = await file.text();
-                const data = JSON.parse(text);
+                const data = csvToStudents(text);
                 const normalized = normalizeLoadedStudents(data, globalStationA, globalStationB);
                 setStudents(normalized);
                 
@@ -596,7 +701,7 @@ export default function Dashboard() {
             if (hasPermission) {
                 const file = await syncFileHandle.getFile();
                 const text = await file.text();
-                const data = JSON.parse(text);
+                const data = csvToStudents(text);
                 const normalized = normalizeLoadedStudents(data, globalStationA, globalStationB);
                 setStudents(normalized);
                 showToast(`最新データに再同期しました。`, 'success');
@@ -607,40 +712,44 @@ export default function Dashboard() {
         }
     };
 
-    const handleExportJson = () => {
+    const handleExportCsv = () => {
         try {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(students, null, 2));
+            const csvContent = studentsToCsv(students);
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
             const downloadAnchor = document.createElement('a');
-            downloadAnchor.setAttribute("href", dataStr);
-            downloadAnchor.setAttribute("download", "students.json");
+            downloadAnchor.setAttribute("href", url);
+            downloadAnchor.setAttribute("download", "students.csv");
             document.body.appendChild(downloadAnchor);
             downloadAnchor.click();
             downloadAnchor.remove();
-            showToast("JSONファイルをエクスポートしました。", "success");
+            URL.revokeObjectURL(url);
+            showToast("CSVファイルをエクスポートしました。", "success");
         } catch (err) {
             console.error(err);
             showToast("エクスポートに失敗しました。", "error");
         }
     };
 
-    const handleImportJson = (e) => {
+    const handleImportCsv = (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
         const reader = new FileReader();
         reader.onload = (event) => {
             try {
-                const parsed = JSON.parse(event.target.result);
+                const text = event.target.result;
+                const parsed = csvToStudents(text);
                 if (Array.isArray(parsed)) {
                     const normalized = normalizeLoadedStudents(parsed, globalStationA, globalStationB);
                     updateStudentsState(normalized);
-                    showToast("JSONファイルからデータをインポートしました。", "success");
+                    showToast("CSVファイルからデータをインポートしました。", "success");
                 } else {
-                    showToast("不正なデータ形式です。配列形式の JSON である必要があります。", "error");
+                    showToast("不正なデータ形式です。正しい CSV フォーマットである必要があります。", "error");
                 }
             } catch (err) {
                 console.error(err);
-                showToast("JSONの解析に失敗しました。", "error");
+                showToast("CSVの解析に失敗しました。", "error");
             }
         };
         reader.readAsText(file);
@@ -1080,11 +1189,11 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        {/* JSON Data Sync */}
+                        {/* CSV Data Sync */}
                         <div className="card">
                             <h3>
                                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                                データ同期 (JSON)
+                                データ同期 (CSV)
                             </h3>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                                 {syncFileHandle ? (
@@ -1099,17 +1208,17 @@ export default function Dashboard() {
                                 ) : (
                                     <>
                                         <button className="btn btn-secondary" style={{ color: 'var(--accent-primary)', fontWeight: 600 }} onClick={handleConnectSyncFile}>
-                                            📂 共有JSONファイルを設定
+                                            📂 共有CSVファイルを設定
                                         </button>
                                         <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                            <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.75rem', padding: '0.5rem' }} onClick={handleExportJson}>
+                                            <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.75rem', padding: '0.5rem' }} onClick={handleExportCsv}>
                                                 📥 エクスポート
                                             </button>
-                                            <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.75rem', padding: '0.5rem' }} onClick={() => document.getElementById('json-import-input').click()}>
+                                            <button className="btn btn-secondary" style={{ flex: 1, fontSize: '0.75rem', padding: '0.5rem' }} onClick={() => document.getElementById('csv-import-input').click()}>
                                                 📤 インポート
                                             </button>
                                         </div>
-                                        <input type="file" id="json-import-input" accept=".json" style={{ display: 'none' }} onChange={handleImportJson} />
+                                        <input type="file" id="csv-import-input" accept=".csv" style={{ display: 'none' }} onChange={handleImportCsv} />
                                     </>
                                 )}
                             </div>
